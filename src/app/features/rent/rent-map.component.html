@@ -1,0 +1,129 @@
+<div class="page">
+  <!-- Search + filters -->
+  <div class="toolbar">
+    <label class="search">
+      <span class="icon">search</span>
+      <input [ngModel]="search()" (ngModelChange)="search.set($event)" placeholder="Search location, society or landmark…" aria-label="Search">
+      @if (search()) { <button class="x" (click)="search.set('')" aria-label="Clear"><span class="icon sm">close</span></button> }
+    </label>
+
+    <div class="filters">
+      <app-dropdown [label]="bhkLabel()" [active]="bhk().length > 0" [width]="220">
+        <p class="ph">Bedrooms</p>
+        <div class="opt-grid">
+          @for (b of bhkOptions; track b) {
+            <button class="chip" [class.active]="bhk().includes(b)" (click)="toggleIn(bhk, b)">{{ b }} BHK</button>
+          }
+        </div>
+      </app-dropdown>
+
+      <app-dropdown [label]="rentLabel()" [active]="maxRent() != null" [width]="260">
+        <p class="ph">Monthly budget</p>
+        <div class="seg">
+          <button [class.on]="budgetType() === 'total'" (click)="budgetType.set('total')">Rent + maintenance</button>
+          <button [class.on]="budgetType() === 'rent'" (click)="budgetType.set('rent')">Rent only</button>
+        </div>
+        <div class="opt-col">
+          @for (r of rentOptions; track r) {
+            <label class="radio"><input type="radio" name="rent" [checked]="maxRent() === r" (change)="maxRent.set(r)"> Under {{ r | inr }}</label>
+          }
+          <label class="radio"><input type="radio" name="rent" [checked]="maxRent() == null" (change)="maxRent.set(null)"> Any budget</label>
+        </div>
+      </app-dropdown>
+
+      <app-dropdown [label]="furnLabel()" [active]="furnishing().length > 0" [width]="220">
+        <p class="ph">Furnishing</p>
+        <div class="opt-col">
+          @for (f of furnishOptions; track f) {
+            <label class="radio"><input type="checkbox" [checked]="furnishing().includes(f)" (change)="toggleIn(furnishing, f)"> {{ f }}</label>
+          }
+        </div>
+      </app-dropdown>
+
+      <app-dropdown label="More Filters" icon="tune" [active]="tenant() != null || verifiedOnly()" [width]="250" [alignRight]="true">
+        <p class="ph">Tenant type</p>
+        <div class="opt-col">
+          @for (t of tenantOptions; track t) {
+            <label class="radio"><input type="radio" name="tenant" [checked]="tenant() === t" (change)="tenant.set(t)"> {{ t }}</label>
+          }
+          <label class="radio"><input type="radio" name="tenant" [checked]="tenant() == null" (change)="tenant.set(null)"> Any</label>
+        </div>
+        <div class="divider"></div>
+        <label class="radio"><input type="checkbox" [checked]="verifiedOnly()" (change)="verifiedOnly.set(!verifiedOnly())"> Availability confirmed (last 7 days)</label>
+      </app-dropdown>
+
+      @if (activeCount() || search()) {
+        <button class="clear" (click)="clearAll()"><span class="icon sm">restart_alt</span> Clear</button>
+      }
+    </div>
+    <a class="btn btn-outline btn-sm match" routerLink="/rent/match"><span class="icon sm">auto_awesome</span> Tell us what you need</a>
+  </div>
+
+  <div class="split" [attr.data-view]="mobileView()">
+    <!-- Result list -->
+    <aside class="list scroll-y">
+      <div class="list-head">
+        <b>{{ rows().length }} societies</b>&nbsp;<span class="muted">· {{ totalFlats() || 0 }} flats {{ flatFilterActive() ? 'match' : 'available' }}</span>
+      </div>
+
+      @if (loading()) {
+        @for (i of [1,2,3]; track i) { <div class="sk card"></div> }
+      }
+
+      @for (r of rows(); track r.society.id) {
+        <article class="soc card" [class.hl]="hoveredId() === r.society.id"
+                 (mouseenter)="hoveredId.set(r.society.id)" (mouseleave)="hoveredId.set(null)">
+          <div class="img" (click)="openSociety(r.society.id)">
+            <img [src]="r.society.coverImage" appImgFallback="building" [alt]="r.society.name" loading="lazy">
+            <span class="badge badge-green v"><span class="icon xs fill">verified</span> Verified</span>
+          </div>
+          <div class="info">
+            <div class="t" (click)="openSociety(r.society.id)">
+              <h3>{{ r.society.name }}</h3>
+              <span class="rt"><span class="icon xs fill">star</span>{{ r.society.rating }}</span>
+            </div>
+            <p class="loc"><span class="icon xs">location_on</span>{{ r.society.locality }}, Hyderabad</p>
+            <div class="bhks">
+              @for (c of bhkCounts(r); track c.bhk) {
+                <span class="bk" [class.none]="!c.n">{{ c.bhk }} BHK <b>{{ c.n }}</b></span>
+              }
+            </div>
+            <div class="foot">
+              <div>
+                @if (r.minRent) { <span class="muted from">from&nbsp;</span><span class="price">{{ r.minRent | inr }}</span><span class="muted">/mo{{ budgetType() === 'total' ? ' all-in' : '' }}</span> }
+                @else { <span class="muted">No units right now</span> }
+              </div>
+              <div class="acts">
+                <button class="icon-btn sm" title="Show on map" (click)="focus(r.society.id); mobileView.set('map')"><span class="icon sm">my_location</span></button>
+                <button class="btn btn-primary btn-sm" (click)="openSociety(r.society.id)">View</button>
+              </div>
+            </div>
+          </div>
+        </article>
+      } @empty {
+        @if (!loading()) {
+          <div class="empty card">
+            <span class="icon lg">search_off</span>
+            <p>No societies match your filters.</p>
+            <button class="btn btn-outline btn-sm" (click)="clearAll()">Clear filters</button>
+          </div>
+        }
+      }
+    </aside>
+
+    <!-- Map -->
+    <section class="mapwrap">
+      <app-map [markers]="markers()" variant="society" [selectedId]="selectedId()" [hoveredId]="hoveredId()"
+               (markerClick)="openSociety($event)" />
+      <div class="legend"><span class="icon xs fill">touch_app</span> Tap a society pin to see available flats</div>
+    </section>
+
+    <button class="toggle" (click)="mobileView.set(mobileView() === 'map' ? 'list' : 'map')">
+      <span class="icon sm">{{ mobileView() === 'map' ? 'list' : 'map' }}</span> {{ mobileView() === 'map' ? 'List' : 'Map' }}
+    </button>
+  </div>
+</div>
+
+@if (selected(); as s) {
+  <app-society-dialog [society]="s.society" [flats]="s.flats" (closed)="selectedId.set(null)" />
+}

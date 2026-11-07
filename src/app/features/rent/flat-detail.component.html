@@ -1,0 +1,147 @@
+@if (flat(); as f) {
+  <div class="container wrap">
+    <div class="bar">
+      <button class="back" (click)="back()"><span class="icon">arrow_back</span> Back to Listings</button>
+      <div class="acts">
+        <button class="icon-btn" (click)="toggleSave()" aria-label="Save">
+          <span class="icon" [class.fill]="saved.isSaved(f.id)" [style.color]="saved.isSaved(f.id) ? 'var(--red)' : ''">favorite</span></button>
+        <button class="icon-btn" (click)="share()" aria-label="Share"><span class="icon">ios_share</span></button>
+        <button class="icon-btn" (click)="reportOpen.set(true)" aria-label="Report a problem" title="Report a problem"><span class="icon">flag</span></button>
+      </div>
+    </div>
+
+    @if (unavailable()) {
+      <section class="card gone">
+        <div class="gh">
+          <span class="icon lg">{{ f.availability === 'rented' ? 'key_off' : 'pause_circle' }}</span>
+          <div>
+            <h2>{{ f.availability === 'rented' ? 'This flat has been rented out' : 'This flat is on hold' }}</h2>
+            <p class="muted">{{ f.availability === 'rented' ? 'Here are similar flats that are available now.' : 'Another tenant is finalising. You can still enquire to be next in line, or see similar flats below.' }}</p>
+          </div>
+        </div>
+        @if (alternatives().length) {
+          <div class="alts">
+            @for (m of alternatives(); track m.flat.id) {
+              <a class="alt" [routerLink]="['/rent/flat', m.flat.id]">
+                <img [src]="m.flat.images[0]" appImgFallback="interior" alt="" loading="lazy">
+                <div>
+                  <b>{{ m.flat.rent | inr }}</b><span class="muted"> / month</span>
+                  <small>{{ m.flat.bhk }} BHK · {{ m.society.name }}, {{ m.society.locality }}</small>
+                  <small class="muted">{{ m.reasons.slice(0, 2).join(' · ') }}</small>
+                </div>
+              </a>
+            }
+          </div>
+        }
+        <a class="btn btn-outline btn-sm" routerLink="/rent/match"><span class="icon sm">auto_awesome</span> Tell us your requirement</a>
+      </section>
+    }
+
+    <div class="top">
+      <div class="card gal">
+        <app-gallery [tabs]="tabs()" [lat]="society()?.lat ?? 0" [lng]="society()?.lng ?? 0" [title]="society()?.name ?? ''" fallback="interior" />
+      </div>
+
+      <div class="card summary">
+        <div class="pr-row">
+          <div><span class="price big">{{ f.rent | inr }}</span>&nbsp;<span class="muted">/ month</span></div>
+          @if (f.verified) { <span class="badge badge-green"><span class="icon xs fill">check_circle</span> Verified Property</span> }
+        </div>
+        <h1>{{ f.title }}</h1>
+        <p class="muted addr">{{ society()?.name }}, {{ society()?.locality }}, Hyderabad</p>
+        <div class="avail"><app-availability [flat]="f" variant="banner" /></div>
+
+        <div class="stats">
+          <div><span class="icon">bed</span><b>{{ f.bhk }}</b><small>Bedrooms</small></div>
+          <div><span class="icon">bathtub</span><b>{{ f.bathrooms }}</b><small>Bathrooms</small></div>
+          <div><span class="icon">square_foot</span><b>{{ f.areaSqft }}</b><small>Sq.ft</small></div>
+          <div><span class="icon">chair</span><b>{{ f.furnishing === 'Semi Furnished' ? 'Semi' : f.furnishing === 'Unfurnished' ? 'Bare' : 'Full' }}</b><small>Furnished</small></div>
+        </div>
+
+        <p class="desc">{{ f.description }}</p>
+
+        <div class="cost">
+          <div><small class="muted">Rent</small><b>{{ f.rent | inr }}</b></div>
+          <span class="icon sm muted">add</span>
+          <div><small class="muted">Maintenance</small><b>{{ f.maintenance | inr }}</b></div>
+          <span class="icon sm muted">drag_handle</span>
+          <div class="tot"><small>Total / month</small><b>{{ f.rent + f.maintenance | inr }}</b></div>
+        </div>
+        <p class="posted muted"><span class="icon xs">schedule</span> Posted on {{ f.postedOn | date: 'd MMM y' }}</p>
+      </div>
+    </div>
+
+    <!-- Detail sections (reference screen ④ bottom row) -->
+    <div class="sections">
+      <section class="card kd">
+        <h3 class="card-title"><span class="icon">list_alt</span> Key Details</h3>
+        @for (k of keyDetails(); track k.label) {
+          <div class="kv">
+            <span class="icon sm">{{ k.icon }}</span>
+            <span class="k">{{ k.label }}</span>
+            <span class="v" [class.strong]="k.strong">
+              @if (k.pill) { <span class="badge badge-green">{{ k.value }}</span> } @else { {{ k.value }} }
+              @if (k.copy) { <button class="cp" (click)="copy(k.value)" aria-label="Copy"><span class="icon xs">content_copy</span></button> }
+            </span>
+          </div>
+        }
+      </section>
+
+      <div class="col">
+        <app-contact-card [listingType]="'rent'" [listingId]="f.code" [listingTitle]="f.title + ' in ' + (society()?.name ?? '')" />
+        @if (society(); as s) {
+          <app-location-card [name]="s.name" [address]="s.locality + ', Hyderabad - ' + s.pincode" [lat]="s.lat" [lng]="s.lng" />
+        }
+      </div>
+
+      @if (society(); as s) {
+        <div class="col">
+          <app-amenities [items]="s.amenities" />
+          <section class="card pad">
+            <h3 class="card-title"><span class="icon">apartment</span> About the Society</h3>
+            <p class="about">{{ s.about }}</p>
+            <div class="facts">
+              <span><b>{{ s.totalAcres }}</b> acres</span><span><b>{{ s.towers }}</b> towers</span>
+              <span><b>{{ s.totalUnits }}</b> units</span><span>since <b>{{ s.completedYear }}</b></span>
+            </div>
+            @if (s.brochureUrl) {
+              <a class="brochure" [href]="s.brochureUrl"><span class="icon">picture_as_pdf</span> Download Society Brochure (PDF)</a>
+            }
+          </section>
+        </div>
+
+        <app-nearby [places]="s.nearby" />
+
+        <div class="col">
+          <app-reviews [reviews]="s.reviews" [rating]="s.rating" [count]="s.reviewsCount" title="Tenant Reviews & Feedback" />
+          <section class="card pad save">
+            <h3 class="card-title"><span class="icon" style="color: var(--red)">favorite</span> Save This Property</h3>
+            <button class="btn btn-outline btn-block" (click)="toggleSave()">
+              <span class="icon sm" [class.fill]="saved.isSaved(f.id)">favorite</span>
+              {{ saved.isSaved(f.id) ? 'Saved — view in Saved list' : 'Add to Saved List' }}
+            </button>
+            <p class="muted">Compare later with your favourite properties.</p>
+          </section>
+        </div>
+      }
+    </div>
+
+    @if (similar().length) {
+      <h2 class="sim-t">More flats in {{ society()?.name }}</h2>
+      <div class="sim">
+        @for (x of similar(); track x.id) {
+          <a class="card sc" [routerLink]="['/rent/flat', x.id]">
+            <img [src]="x.images[0]" appImgFallback="interior" alt="" loading="lazy">
+            <div><span class="price">{{ x.rent | inr }}</span><span class="muted"> / month</span>
+              <small class="muted">{{ x.bhk }} BHK · {{ x.areaSqft }} sq.ft · {{ x.furnishing }}</small></div>
+          </a>
+        }
+      </div>
+    }
+  </div>
+  @if (reportOpen()) {
+    <app-report-dialog [flatId]="f.id" [propertyCode]="f.code" (closed)="reportOpen.set(false)" />
+  }
+} @else {
+  <div class="container loading"><div class="spinner"></div></div>
+}

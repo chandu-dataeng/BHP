@@ -1,0 +1,111 @@
+@if (v(); as v) {
+  <div class="container wrap">
+    <div class="bar">
+      <button class="back" (click)="back()"><span class="icon">arrow_back</span> Back to Ventures</button>
+      <div class="acts">
+        <button class="icon-btn" (click)="toggleSave()" aria-label="Save">
+          <span class="icon" [class.fill]="saved.isSaved(v.id)" [style.color]="saved.isSaved(v.id) ? 'var(--red)' : ''">favorite</span></button>
+        <button class="icon-btn" (click)="share()" aria-label="Share"><span class="icon">ios_share</span></button>
+      </div>
+    </div>
+
+    <div class="top">
+      <div class="card gal">
+        <app-gallery [tabs]="tabs()" [lat]="v.lat" [lng]="v.lng" [title]="v.name" fallback="land" />
+      </div>
+
+      <div class="card summary">
+        <div class="pr-row">
+          <div><span class="price big">{{ v.pricePerSqYd | inr }}</span>&nbsp;<span class="muted">/ sq.yd</span></div>
+          @if (v.verified) { <span class="badge badge-green"><span class="icon xs fill">check_circle</span> Verified Venture</span> }
+        </div>
+        <h1>{{ v.name }}</h1>
+        <p class="muted addr">{{ v.locality }}, Hyderabad · by {{ v.developer }}</p>
+        <div class="appr">
+          <span class="badge" [class]="statusTone(v.status)">{{ v.status }}</span>
+          @for (a of v.approvals; track a) { <span class="badge" [class]="approvalTone(a)"><span class="icon xs fill">task_alt</span>{{ a }}</span> }
+        </div>
+
+        <div class="stats">
+          <div><span class="icon">landscape</span><b>{{ v.totalAcres }}</b><small>Acres</small></div>
+          <div><span class="icon">grid_view</span><b>{{ v.plots.length }}</b><small>Total plots</small></div>
+          <div><span class="icon" style="color: var(--green)">check_box</span><b>{{ counts().Available }}</b><small>Available</small></div>
+          <div><span class="icon">route</span><b>{{ v.orrDistanceKm }} km</b><small>from ORR</small></div>
+        </div>
+
+        <p class="desc">{{ v.about }}</p>
+
+        <!-- EMI / price calculator -->
+        <div class="calc">
+          <div class="calc-h"><span class="icon">calculate</span> Price &amp; EMI Calculator</div>
+          <div class="sz">
+            @for (s of sizes(); track s) {
+              <button class="chip" [class.active]="calcSize() === s" (click)="calcSize.set(s)">{{ s }} sq.yd</button>
+            }
+          </div>
+          <div class="cg">
+            <div><small>Plot price</small><b>{{ price() | inrShort }}</b></div>
+            <div><small>Regn. (approx 7.5%)</small><b>{{ regCharges() | inrShort }}</b></div>
+            <div class="em"><small>EMI / month</small><b>{{ monthly() | inr }}</b></div>
+          </div>
+          <label class="sl">Down payment <b>{{ downPct() }}%</b>
+            <input type="range" min="10" max="100" step="5" [value]="downPct()" (input)="downPct.set(+$any($event.target).value)"></label>
+          <div class="sl2">
+            <label class="sl">Interest <b>{{ rate() }}%</b>
+              <input type="range" min="7" max="13" step="0.25" [value]="rate()" (input)="rate.set(+$any($event.target).value)"></label>
+            <label class="sl">Tenure <b>{{ years() }} yrs</b>
+              <input type="range" min="5" max="25" step="1" [value]="years()" (input)="years.set(+$any($event.target).value)"></label>
+          </div>
+          <p class="disc muted">Indicative only. Final rates depend on your bank ({{ v.bankLoans.join(', ') }}).</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="sections">
+      <section class="card kd">
+        <h3 class="card-title"><span class="icon">list_alt</span> Key Details</h3>
+        @for (k of keyDetails(); track k.label) {
+          <div class="kv">
+            <span class="icon sm">{{ k.icon }}</span>
+            <span class="k">{{ k.label }}</span>
+            <span class="v" [class.strong]="k.strong">
+              @if (k.pill) { <span class="badge badge-green">{{ k.value }}</span> } @else { {{ k.value }} }
+            </span>
+          </div>
+        }
+      </section>
+
+      <div class="col">
+        <app-contact-card [listingType]="'sale'" [listingId]="v.id" [listingTitle]="v.name + ', ' + v.locality" />
+        <app-location-card [name]="v.name" [address]="v.locality + ', Hyderabad - ' + v.pincode" [lat]="v.lat" [lng]="v.lng" />
+      </div>
+
+      <div class="col">
+        <app-amenities [items]="v.amenities" title="Amenities & Infrastructure" />
+        <section class="card pad">
+          <h3 class="card-title"><span class="icon">account_balance</span> Bank Loans Available</h3>
+          <div class="banks">@for (b of v.bankLoans; track b) { <span>{{ b }}</span> }</div>
+          @if (v.brochureUrl) {
+            <a class="brochure" [href]="v.brochureUrl"><span class="icon">picture_as_pdf</span> Download Brochure &amp; Layout (PDF)</a>
+          }
+        </section>
+      </div>
+
+      <app-nearby [places]="v.nearby" />
+
+      <div class="col">
+        <app-reviews [reviews]="v.reviews" [rating]="v.rating" [count]="v.reviewsCount" title="Buyer Reviews & Feedback" />
+        <section class="card pad save">
+          <h3 class="card-title"><span class="icon" style="color: var(--red)">favorite</span> Save This Venture</h3>
+          <button class="btn btn-outline btn-block" (click)="toggleSave()">
+            <span class="icon sm" [class.fill]="saved.isSaved(v.id)">favorite</span>
+            {{ saved.isSaved(v.id) ? 'Saved' : 'Add to Saved List' }}
+          </button>
+          <p class="muted">Compare later with your favourite ventures.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+} @else {
+  <div class="container loading"><div class="spinner"></div></div>
+}

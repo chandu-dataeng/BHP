@@ -1,0 +1,85 @@
+<section class="hero">
+  <div class="container">
+    <span class="pill"><span class="icon xs fill">location_on</span> Hyderabad &amp; surroundings</span>
+    <h1>Find your perfect <span>plot</span> or <span>home</span><br> in Hyderabad</h1>
+    <p>Verified plots, ventures and gated-community flats — on a map, with real photos and honest prices.</p>
+
+    <!-- SCREEN-1: the two choice cards -->
+    <div class="choices">
+      <a class="choice" routerLink="/sale" aria-label="Buy plots and ventures">
+        <div class="ph">
+          <img [src]="img.sale" appImgFallback="land" alt="Open plots">
+          <span class="tag sale"><span class="icon sm fill">sell</span> FOR SALE</span>
+        </div>
+        <div class="body">
+          <h2>Buy Plots &amp; Ventures</h2>
+          <p class="muted">HMDA, DTCP &amp; RERA approved open plots across Hyderabad.</p>
+          <div class="stats">
+            <div><b>{{ sale().ventures }}</b><small>Ventures</small></div>
+            <div><b>{{ sale().plots }}</b><small>Plots available</small></div>
+            <div><b>{{ sale().minRate | inr }}</b><small>From / sq.yd</small></div>
+          </div>
+          <span class="btn btn-primary btn-block">Explore Plots <span class="icon sm">arrow_forward</span></span>
+        </div>
+      </a>
+
+      <a class="choice" routerLink="/rent" aria-label="Rent a flat">
+        <div class="ph">
+          <img [src]="img.rent" appImgFallback="building" alt="Apartments">
+          <span class="tag rent"><span class="icon sm fill">key</span> FOR RENT</span>
+        </div>
+        <div class="body">
+          <h2>Rent a Flat</h2>
+          <p class="muted">Verified 1–4 BHK flats in top gated communities.</p>
+          <div class="stats">
+            <div><b>{{ rent().societies }}</b><small>Societies</small></div>
+            <div><b>{{ rent().flats }}</b><small>Flats available</small></div>
+            <div><b>{{ rent().minRent | inr }}</b><small>From / month</small></div>
+          </div>
+          <span class="btn btn-green btn-block">Find Flats <span class="icon sm">arrow_forward</span></span>
+        </div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section class="container block">
+  <div class="areas card">
+    <div>
+      <h3><span class="icon">landscape</span> Popular plot locations</h3>
+      <div class="chips">
+        @for (a of saleAreas; track a) { <button class="chip" (click)="search(a, 'sale')">{{ a }}</button> }
+      </div>
+    </div>
+    <div>
+      <h3><span class="icon">apartment</span> Popular rental areas</h3>
+      <div class="chips">
+        @for (a of rentAreas; track a) { <button class="chip" (click)="search(a, 'rent')">{{ a }}</button> }
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="container block">
+  <h2 class="sec">Why {{ brand.name }}?</h2>
+  <div class="why">
+    @for (w of why; track w.title) {
+      <div class="card w">
+        <span class="wi"><span class="icon fill">{{ w.icon }}</span></span>
+        <h4>{{ w.title }}</h4>
+        <p class="muted">{{ w.text }}</p>
+      </div>
+    }
+  </div>
+</section>
+
+<section class="container block">
+  <h2 class="sec">How it works</h2>
+  <div class="steps">
+    <div class="st"><span class="n">1</span><div><b>Pick Sale or Rent</b><p class="muted">Choose what you are looking for.</p></div></div>
+    <div class="st"><span class="n">2</span><div><b>Explore on the map</b><p class="muted">Tap any pin to see details instantly.</p></div></div>
+    <div class="st"><span class="n">3</span><div><b>Visit &amp; finalise</b><p class="muted">Book a free site visit with our team.</p></div></div>
+  </div>
+</section>
+
+<app-footer />

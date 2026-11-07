@@ -1,0 +1,114 @@
+@if (society(); as s) {
+  <div class="topbar">
+    <div class="container tb">
+      <button class="icon-btn" (click)="back()" aria-label="Back"><span class="icon">arrow_back</span></button>
+      <div class="ttl">
+        <h1>{{ s.name }}</h1>
+        <p><span class="icon xs fill">location_on</span> {{ s.locality }}, {{ s.city }}
+          <span class="sep">•</span><span class="icon xs fill star">star</span> {{ s.rating }} ({{ s.reviewsCount }})</p>
+      </div>
+    </div>
+    <div class="container">
+      <div class="tabs">
+        @for (t of tabs(); track t.bhk) {
+          <button class="tab" [class.active]="activeBhk() === t.bhk" (click)="selectTab(t.bhk)">{{ t.bhk }} BHK ({{ t.count }})</button>
+        }
+      </div>
+    </div>
+  </div>
+
+  <div class="container layout">
+    <div class="main">
+      <h2 class="sec">{{ activeBhk() }} BHK Flats <span class="muted">({{ current().length }} {{ current().length === 1 ? 'unit' : 'units' }})</span></h2>
+
+      @if (featured(); as f) {
+        <!-- Featured slider card -->
+        <article class="feat card">
+          <div class="ph" [routerLink]="['/rent/flat', f.id]">
+            <img [src]="f.images[photo()]" appImgFallback="interior" [alt]="f.title">
+            <button class="nav l" (click)="nextPhoto($event, -1)" aria-label="Previous photo"><span class="icon">chevron_left</span></button>
+            <button class="nav r" (click)="nextPhoto($event, 1)" aria-label="Next photo"><span class="icon">chevron_right</span></button>
+            <button class="heart" (click)="toggleSave($event, f)" [attr.aria-label]="saved.isSaved(f.id) ? 'Unsave' : 'Save'">
+              <span class="icon" [class.fill]="saved.isSaved(f.id)" [class.on]="saved.isSaved(f.id)">favorite</span>
+            </button>
+            @if (f.verified) { <span class="badge vb"><span class="icon xs fill">verified</span> Verified</span> }
+            <span class="pc">{{ photo() + 1 }}/{{ f.images.length }}</span>
+          </div>
+          <div class="body">
+            <div>
+              <div class="pr"><span class="price">{{ f.rent | inr }}</span>&nbsp;<span class="muted">/ month</span>
+                <app-availability [flat]="f" /></div>
+              <p class="allin muted">+ {{ f.maintenance | inr }} maintenance = <b>{{ f.rent + f.maintenance | inr }}</b> all-in</p>
+              <p class="spec">{{ f.bhk }} BHK | {{ f.areaSqft }} sq.ft | {{ f.furnishing }}</p>
+              <p class="spec2"><span class="icon xs">layers</span> Floor {{ f.floor }} of {{ f.totalFloors }}
+                <span class="icon xs">explore</span> {{ f.facing }} facing
+                <span class="icon xs">group</span> {{ f.tenantType }}</p>
+            </div>
+            <a class="btn btn-primary" [routerLink]="['/rent/flat', f.id]">View Details</a>
+          </div>
+          @if (current().length > 1) {
+            <div class="slider-ctrl">
+              <button class="icon-btn" (click)="goSlide(slide() - 1)" aria-label="Previous flat"><span class="icon">west</span></button>
+              <div class="dots">
+                @for (x of current(); track x.id; let i = $index) {
+                  <button [class.on]="i === slide()" (click)="goSlide(i)" [attr.aria-label]="'Flat ' + (i + 1)"></button>
+                }
+              </div>
+              <button class="icon-btn" (click)="goSlide(slide() + 1)" aria-label="Next flat"><span class="icon">east</span></button>
+            </div>
+          }
+        </article>
+
+        <!-- All units of this BHK -->
+        @if (current().length > 1) {
+          <h3 class="more">All {{ activeBhk() }} BHK units</h3>
+          <div class="grid">
+            @for (x of current(); track x.id; let i = $index) {
+              <article class="mini card" [class.sel]="i === slide()" (click)="goSlide(i)">
+                <div class="mph">
+                  <img [src]="x.images[0]" appImgFallback="interior" alt="" loading="lazy">
+                  <button class="heart sm" (click)="toggleSave($event, x)"><span class="icon sm" [class.fill]="saved.isSaved(x.id)" [class.on]="saved.isSaved(x.id)">favorite</span></button>
+                </div>
+                <div class="mb">
+                  <div><span class="price">{{ x.rent | inr }}</span>&nbsp;<span class="muted">/ month</span></div>
+                  <small class="muted">{{ x.bhk }} BHK | {{ x.areaSqft }} sq.ft | {{ x.furnishing }}</small>
+                  <div class="fr"><app-availability [flat]="x" /></div>
+                </div>
+              </article>
+            }
+          </div>
+        }
+      } @else {
+        <div class="none card">
+          <span class="icon lg">event_busy</span>
+          <h3>No {{ activeBhk() }} BHK flats available right now</h3>
+          <p class="muted">Leave your number and we'll alert you as soon as one opens up — or try another BHK type above.</p>
+          <button class="btn btn-primary" (click)="alertOpen.set(true)"><span class="icon sm">notifications</span> Notify me</button>
+        </div>
+      }
+    </div>
+
+    <aside class="side">
+      <section class="card about">
+        <h3 class="card-title"><span class="icon">apartment</span> About {{ s.name }}</h3>
+        <p class="muted">{{ s.about }}</p>
+        <div class="facts">
+          <div><b>{{ s.totalAcres }}</b><small>Acres</small></div>
+          <div><b>{{ s.towers }}</b><small>Towers</small></div>
+          <div><b>{{ s.totalUnits }}</b><small>Units</small></div>
+        </div>
+        <div class="ams">
+          @for (a of s.amenities.slice(0, 6); track a) {
+            <span><span class="icon sm">{{ meta[a].icon }}</span>{{ meta[a].label }}</span>
+          }
+        </div>
+      </section>
+      <app-contact-card listingType="rent" [listingId]="s.id" [listingTitle]="s.name + ', ' + s.locality" />
+    </aside>
+  </div>
+  @if (alertOpen()) {
+    <app-alert-dialog [societyId]="s.id" [bhk]="activeBhk()" [summary]="activeBhk() + ' BHK in ' + s.name" (closed)="alertOpen.set(false)" />
+  }
+} @else {
+  <div class="container loading"><div class="spinner"></div></div>
+}

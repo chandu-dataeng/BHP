@@ -1,0 +1,60 @@
+:host { display: block; position: relative; width: 100%; height: 100%; }
+.map-host { position: absolute; inset: 0; background: #1d2a1f; }
+:host ::ng-deep .leaflet-control-attribution { font-size: 9.5px; }
+.notice {
+  position: absolute; left: 10px; bottom: 10px; z-index: 600; background: rgba(12, 22, 38, .82); color: #fff;
+  font-size: 11.5px; padding: 5px 9px; border-radius: 6px; display: flex; gap: 4px; align-items: center; pointer-events: none;
+  code { background: rgba(255,255,255,.15); padding: 0 4px; border-radius: 4px; }
+}
+
+/* Markers are created outside Angular → style them with ::ng-deep.
+   .mk is a 0×0 anchor placed exactly on the coordinates. */
+:host ::ng-deep .mk-wrap { background: none; border: 0; }
+:host ::ng-deep .mk { position: relative; width: 0; height: 0; cursor: pointer; }
+
+/* ---- Sale: coloured round pin with glow (plotsview style) ---- */
+:host ::ng-deep .vp {
+  position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--c); border: 2px solid rgba(255, 255, 255, .9); color: #111;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 35%, transparent), 0 0 14px 2px color-mix(in srgb, var(--c) 70%, transparent);
+  transition: transform .15s, box-shadow .15s;
+  > .icon { font-size: 18px; }
+  .tip {
+    display: none; position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+    background: #fff; color: #1f2937; border-radius: 8px; padding: 6px 10px; white-space: nowrap;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .35); flex-direction: column; text-align: left; pointer-events: none;
+    b { font-size: 13px; } small { font-size: 11.5px; color: #4b5563; }
+    &::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #fff; }
+  }
+  &.viewed { background: #fff; color: #15803d; border-color: #15803d; box-shadow: 0 0 0 3px rgba(255,255,255,.35), 0 2px 10px rgba(0,0,0,.4); }
+  &.muted { opacity: .35; }
+}
+:host ::ng-deep .mk:hover .vp, :host ::ng-deep .is-hovered .vp { transform: translate(-50%, -50%) scale(1.2); .tip { display: flex; } }
+:host ::ng-deep .is-selected .vp {
+  transform: translate(-50%, -50%) scale(1.3); border-color: #fff; border-width: 3px;
+  .tip { display: flex; }
+}
+:host ::ng-deep .mk:hover, :host ::ng-deep .is-hovered, :host ::ng-deep .is-selected { z-index: 1000; }
+
+/* ---- Rent: society pin (round icon + label card) ---- */
+:host ::ng-deep .soc {
+  position: absolute; left: 0; top: 0; transform: translate(-21px, -21px);
+  display: flex; align-items: center; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, .35));
+  .dot {
+    width: 42px; height: 42px; border-radius: 50%; background: #1d4f91; border: 3px solid #fff;
+    display: grid; place-items: center; color: #fff; position: relative; z-index: 2; transition: background .15s, transform .15s;
+    .icon { font-size: 22px; }
+  }
+  .lbl {
+    margin-left: -10px; padding: 6px 12px 6px 18px; background: #fff; border-radius: 8px;
+    display: flex; flex-direction: column; white-space: nowrap; border: 2px solid transparent;
+    b { font-size: 13px; font-weight: 700; color: #1f2937; } small { font-size: 11px; color: #4b5563; font-weight: 500; }
+  }
+  &.muted { opacity: .55; }
+}
+:host ::ng-deep .is-hovered .soc .dot { background: var(--primary); transform: scale(1.08); }
+:host ::ng-deep .is-selected .soc { .dot { background: var(--red); transform: scale(1.12); } .lbl { border-color: var(--navy); } }
+
+/* compact mode: only round pins for societies when zoomed far out on small screens */
+:host ::ng-deep .compact .mk:not(.is-selected):not(.is-hovered) .soc .lbl { display: none; }

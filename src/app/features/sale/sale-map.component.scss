@@ -1,0 +1,67 @@
+@use '../../shared/styles/map-page';
+
+/* Map-first layout (plotsview style) */
+.stage { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.list-head { margin: 2px 2px 12px; font-size: 14px; ::ng-deep .chip { height: 32px; font-size: 13px; } }
+
+.list-btn {
+  position: absolute; top: 14px; left: 14px; z-index: 720; height: 42px; padding: 0 14px; border-radius: 10px; border: 0;
+  background: #fff; color: var(--navy); font-weight: 700; font-size: 14px; display: inline-flex; align-items: center; gap: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .35); cursor: pointer; transition: left .25s;
+  .cnt { background: var(--primary); color: #fff; border-radius: 999px; font-size: 12px; padding: 1px 8px; }
+  &.on { left: 434px; }
+}
+
+.drawer {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 420px; z-index: 710; background: var(--bg);
+  padding: 14px; box-shadow: 4px 0 24px rgba(0, 0, 0, .3); transform: translateX(-105%); transition: transform .25s ease;
+  &.open { transform: none; }
+}
+
+.legend-box {
+  position: absolute; left: 14px; bottom: 36px; z-index: 700; background: rgba(255, 255, 255, .97); border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .35); padding: 8px; width: 200px; font-size: 13px;
+  .lg-h { width: 100%; border: 0; background: none; display: flex; align-items: center; gap: 6px; font-weight: 700; color: var(--navy);
+    cursor: pointer; padding: 4px 4px 6px; font-size: 13px; .icon:last-child { margin-left: auto; } }
+  .lg-row { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 5px 6px; border-radius: 6px;
+    cursor: pointer; text-align: left; font-size: 13px;
+    &:not(.static):hover { background: var(--gray-soft); }
+    &.off { opacity: .35; }
+    &.static { cursor: default; }
+    small { margin-left: auto; color: var(--muted); font-weight: 600; } }
+  .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; border: 1.5px solid #fff;
+    &.eye { background: #fff; border-color: #15803d; color: #15803d; display: grid; place-items: center; .icon { font-size: 10px; } } }
+  .lg-sep { height: 1px; background: var(--border); margin: 6px 0; }
+  .rings { cursor: pointer !important; input { accent-color: var(--primary); margin: 0; } }
+  .ln { width: 18px; height: 3px; border-radius: 2px; display: inline-block; margin-left: 4px; }
+  &.closed { width: auto; }
+}
+
+.ven {
+  overflow: hidden; margin-bottom: 14px; transition: box-shadow .15s, border-color .15s;
+  &.hl { border-color: var(--primary); box-shadow: var(--shadow); }
+  .img { position: relative; height: 150px; background: #dfe6ee; cursor: pointer;
+    img { width: 100%; height: 100%; object-fit: cover; }
+    .st { position: absolute; top: 10px; left: 10px; }
+    .appr { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 4px; .badge { font-size: 11px; } } }
+  .heart { position: absolute; top: 8px; right: 8px; width: 34px; height: 34px; border-radius: 50%; border: 0; cursor: pointer;
+    background: rgba(255,255,255,.95); display: grid; place-items: center; .on { color: var(--red); } }
+  .info { padding: 12px 14px 14px; }
+  .t { display: flex; align-items: center; gap: 6px; cursor: pointer; h3 { font-size: 17px; font-weight: 800; } .vf { color: var(--primary); } }
+  .loc { margin: 3px 0 10px; font-size: 13px; color: var(--muted); display: flex; gap: 2px; align-items: center; }
+  .nums { display: flex; align-items: center; gap: 12px; background: var(--gray-soft); border-radius: 10px; padding: 8px 12px;
+    > div:not(.sep) { display: flex; flex-direction: column; } .sep { width: 1px; align-self: stretch; background: var(--border); }
+    .price { font-size: 17px; } b { font-size: 15px; } small { font-size: 11.5px; color: var(--muted); } }
+  .avail { margin-top: 10px; small { font-size: 12.5px; color: var(--muted); b { color: var(--green-text); } } }
+  .bar { height: 6px; border-radius: 3px; background: #e9ecf0; overflow: hidden; margin-bottom: 4px;
+    span { display: block; height: 100%; background: var(--green); border-radius: 3px; } }
+  .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+}
+
+@media (max-width: 900px) {
+  .drawer { width: 100%; padding-top: 66px; }
+  .list-btn.on { left: 14px; }
+  .legend-box { bottom: 20px; left: 10px; width: 180px; }
+  .legend-box:not(.closed) { max-height: 60%; overflow: auto; }
+}

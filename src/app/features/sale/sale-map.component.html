@@ -1,0 +1,154 @@
+<div class="page">
+  <div class="toolbar">
+    <label class="search">
+      <span class="icon">search</span>
+      <input [ngModel]="search()" (ngModelChange)="search.set($event)" placeholder="Search area, venture or developer…" aria-label="Search">
+      @if (search()) { <button class="x" (click)="search.set('')" aria-label="Clear"><span class="icon sm">close</span></button> }
+    </label>
+
+    <div class="filters">
+      <app-dropdown [label]="budgetLabel()" icon="currency_rupee" [active]="maxBudget() != null" [width]="220">
+        <p class="ph">Plot budget</p>
+        <div class="opt-col">
+          @for (b of budgetOptions; track b) {
+            <label class="radio"><input type="radio" name="budget" [checked]="maxBudget() === b" (change)="maxBudget.set(b)"> Under {{ b | inrShort }}</label>
+          }
+          <label class="radio"><input type="radio" name="budget" [checked]="maxBudget() == null" (change)="maxBudget.set(null)"> Any budget</label>
+        </div>
+      </app-dropdown>
+
+      <app-dropdown [label]="sizeLabel()" icon="square_foot" [active]="size() != null" [width]="220">
+        <p class="ph">Plot size</p>
+        <div class="opt-col">
+          @for (o of sizeOptions; track o.label) {
+            <label class="radio"><input type="radio" name="size" [checked]="size() === o.range" (change)="size.set(o.range)"> {{ o.label }}</label>
+          }
+          <label class="radio"><input type="radio" name="size" [checked]="size() == null" (change)="size.set(null)"> Any size</label>
+        </div>
+      </app-dropdown>
+
+      <app-dropdown [label]="approvalLabel()" icon="verified" [active]="approvals().length > 0" [width]="230">
+        <p class="ph">Approved by</p>
+        <div class="opt-col">
+          @for (a of approvalOptions; track a) {
+            <label class="radio"><input type="checkbox" [checked]="approvals().includes(a)" (change)="toggleIn(approvals, a)"> {{ a }} approved</label>
+          }
+        </div>
+      </app-dropdown>
+
+      <app-dropdown [label]="statusLabel()" [active]="status().length > 0" [width]="240">
+        <p class="ph">Project status</p>
+        <div class="opt-col">
+          @for (s of statusOptions; track s) {
+            <label class="radio"><input type="checkbox" [checked]="status().includes(s)" (change)="toggleIn(status, s)"> {{ s }}</label>
+          }
+        </div>
+        <div class="divider"></div>
+        <label class="radio"><input type="checkbox" [checked]="verifiedOnly()" (change)="verifiedOnly.set(!verifiedOnly())"> Verified ventures only</label>
+      </app-dropdown>
+
+      @if (activeCount() || search()) {
+        <button class="clear" (click)="clearAll()"><span class="icon sm">restart_alt</span> Clear</button>
+      }
+    </div>
+  </div>
+
+  <div class="stage">
+    <!-- Full-screen satellite map -->
+    <app-map [markers]="markers()" [variant]="'pin'" [showRings]="showRings()" [selectedId]="selectedId()" [hoveredId]="hoveredId()"
+             (markerClick)="open($event)" />
+
+    <!-- List drawer -->
+    <button class="list-btn" [class.on]="listOpen()" (click)="listOpen.set(!listOpen())">
+      <span class="icon sm">{{ listOpen() ? 'close' : 'view_list' }}</span>
+      {{ listOpen() ? 'Hide list' : 'List view' }} <span class="cnt">{{ rows().length }}</span>
+    </button>
+
+    <aside class="drawer scroll-y" [class.open]="listOpen()">
+      <div class="list-head row-between">
+        <span><b>{{ rows().length }} ventures</b>&nbsp;<span class="muted">found</span></span>
+        <app-dropdown [label]="sortLabel()" icon="swap_vert" [width]="250" [alignRight]="true">
+          <div class="opt-col">
+            @for (o of sortOptions; track o.key) {
+              <label class="radio"><input type="radio" name="sort" [checked]="sort() === o.key" (change)="sort.set(o.key)"> {{ o.label }}</label>
+            }
+          </div>
+        </app-dropdown>
+      </div>
+
+      @if (loading()) { @for (i of [1,2,3]; track i) { <div class="sk card"></div> } }
+
+      @for (r of rows(); track r.v.id) {
+        <article class="ven card" [class.hl]="hoveredId() === r.v.id"
+                 (mouseenter)="hoveredId.set(r.v.id)" (mouseleave)="hoveredId.set(null)">
+          <div class="img" (click)="open(r.v.id)">
+            <img [src]="r.v.coverImage" appImgFallback="land" [alt]="r.v.name" loading="lazy">
+            <span class="badge st" [class]="statusTone(r.v.status)">{{ r.v.status }}</span>
+            <button class="heart" (click)="toggleSave($event, r.v.id)" aria-label="Save">
+              <span class="icon sm" [class.fill]="saved.isSaved(r.v.id)" [class.on]="saved.isSaved(r.v.id)">favorite</span></button>
+            <div class="appr">
+              @for (a of r.v.approvals; track a) { <span class="badge badge-navy">{{ a }}</span> }
+            </div>
+          </div>
+          <div class="info">
+            <div class="t" (click)="open(r.v.id)">
+              <h3>{{ r.v.name }}</h3>
+              @if (r.v.verified) { <span class="icon sm fill vf" title="Verified">verified</span> }
+            </div>
+            <p class="loc"><span class="icon xs">location_on</span>{{ r.v.locality }} · {{ r.v.orrDistanceKm }} km from ORR</p>
+            <div class="nums">
+              <div><span class="price">{{ r.v.pricePerSqYd | inr }}</span><small>/ sq.yd</small></div>
+              <div class="sep"></div>
+              <div><b>{{ r.minSize }}–{{ r.maxSize }}</b><small>sq.yd</small></div>
+              <div class="sep"></div>
+              <div><b>{{ r.ticket | inrShort }}</b><small>onwards</small></div>
+            </div>
+            <div class="avail">
+              <div class="bar"><span [style.width.%]="pct(r)"></span></div>
+              <small><b>{{ r.available }}</b> of {{ r.total }} plots available</small>
+            </div>
+            <div class="acts">
+              <button class="btn btn-ghost btn-sm" (click)="focus(r.v.id)"><span class="icon sm">my_location</span> Locate</button>
+              <button class="btn btn-primary btn-sm" (click)="open(r.v.id)">View Plots</button>
+            </div>
+          </div>
+        </article>
+      } @empty {
+        @if (!loading()) {
+          <div class="empty card">
+            <span class="icon lg">search_off</span>
+            <p>No ventures match your filters.</p>
+            <button class="btn btn-outline btn-sm" (click)="clearAll()">Clear filters</button>
+          </div>
+        }
+      }
+    </aside>
+
+    <!-- Legend: price heat scale + ring roads (click a colour to filter) -->
+    <div class="legend-box" [class.closed]="!legendOpen()">
+      <button class="lg-h" (click)="legendOpen.set(!legendOpen())">
+        <span class="icon sm">palette</span> Price / sq.yd
+        <span class="icon sm">{{ legendOpen() ? 'expand_more' : 'expand_less' }}</span>
+      </button>
+      @if (legendOpen()) {
+        @for (b of priceBands; track b.key) {
+          <button class="lg-row" [class.off]="bands().length && !bands().includes(b.key)" (click)="toggleIn(bands, b.key)">
+            <i class="dot" [style.background]="b.color" [style.box-shadow]="'0 0 8px ' + b.color"></i>
+            <span>{{ b.label }}</span><small>{{ bandCounts()[b.key] ?? 0 }}</small>
+          </button>
+        }
+        <div class="lg-sep"></div>
+        <div class="lg-row static"><i class="dot eye"><span class="icon fill">visibility</span></i><span>Already viewed</span></div>
+        <label class="lg-row static rings">
+          <input type="checkbox" [checked]="showRings()" (change)="showRings.set(!showRings())">
+          <span class="ln" style="background:#22c55e"></span> ORR
+          <span class="ln" style="background:#f5c518"></span> RRR
+        </label>
+      }
+    </div>
+  </div>
+</div>
+
+@if (selected(); as v) {
+  <app-venture-dialog [v]="v" (closed)="selectedId.set(null)" />
+}
