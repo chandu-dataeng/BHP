@@ -1,6 +1,6 @@
 /**
  * Bulk create / update of properties from a spreadsheet — column contract + row validation.
- * Pure logic (no Excel library): the admin screen reads the workbook into `RawRow`s, this file decides what
+ * Pure logic (no spreadsheet library): the admin screen reads the Google Sheet into `RawRow`s, this file decides what
  * each row means, and AdminService.bulkImport() applies the result (and re-checks permissions, like the API must).
  */
 import { Facing, Furnishing, Society, TenantType } from '../models/rent.models';
@@ -207,7 +207,7 @@ class Reader {
   }
 }
 
-/** Excel dates arrive as Date (UTC midnight), serial numbers, or typed text. → YYYY-MM-DD */
+/** Sheet dates arrive as serial numbers (Google Sheets / Excel epoch), Date objects, or typed text. → YYYY-MM-DD */
 export function toDate(v: CellValue): string | undefined {
   if (v instanceof Date) return isNaN(v.getTime()) ? undefined : v.toISOString().slice(0, 10);
   if (typeof v === 'number') {

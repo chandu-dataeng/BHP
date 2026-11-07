@@ -16,6 +16,8 @@ export const routes: Routes = [
     loadComponent: () => import('./features/rent/rent-map.component').then(m => m.RentMapComponent) },
   { path: 'rent/match', title: 'Find a Flat That Fits Your Needs',
     loadComponent: () => import('./features/rent/match.component').then(m => m.MatchComponent) },
+  { path: 'rent/compare', title: 'Compare Flats',
+    loadComponent: () => import('./features/rent/compare.component').then(m => m.CompareComponent) },
   { path: 'rent/society/:id', title: 'Available Flats',
     loadComponent: () => import('./features/rent/society-flats.component').then(m => m.SocietyFlatsComponent) },
   { path: 'rent/flat/:id', title: 'Flat Details',

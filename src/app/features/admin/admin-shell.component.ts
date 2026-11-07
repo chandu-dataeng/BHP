@@ -150,7 +150,7 @@ export class AdminShellComponent {
     { title: 'Inventory', items: [
       { label: 'Properties', icon: 'apartment', link: '/admin/properties', perm: 'property.view', exact: true },
       { label: 'Add property', icon: 'add_home', link: '/admin/properties/new', perm: 'property.create' },
-      { label: 'Bulk import (Excel)', icon: 'upload_file', link: '/admin/properties/import', perm: ['property.create', 'property.edit'] },
+      { label: 'Bulk import (Google Sheets)', icon: 'upload_file', link: '/admin/properties/import', perm: ['property.create', 'property.edit'] },
       { label: 'Verification', icon: 'fact_check', link: '/admin/verification', perm: 'verification.record', badge: () => this.admin.verificationQueue().filter(q => q.overdue || q.reasons.length).length },
       { label: 'Approvals', icon: 'task_alt', link: '/admin/approvals', perm: 'property.approve', badge: () => this.admin.approvalQueue().length },
       { label: 'Duplicates', icon: 'content_copy', link: '/admin/duplicates', perm: 'duplicates.resolve', badge: () => this.admin.duplicatePairs().length },

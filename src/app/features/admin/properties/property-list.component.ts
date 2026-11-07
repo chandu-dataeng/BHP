@@ -19,7 +19,7 @@ const FRESH_LABEL: Record<Freshness, string> = { confirmed: 'Confirmed', stale: 
         <p>{{ rows().length }} of {{ admin.properties().length }} records · one record per physical flat, listings keep their history</p></div>
       <div class="acts">
         @if (auth.can('property.create') || auth.can('property.edit')) {
-          <a class="btn btn-outline btn-sm" routerLink="/admin/properties/import"><span class="icon sm">upload_file</span> Bulk import (Excel)</a>
+          <a class="btn btn-outline btn-sm" routerLink="/admin/properties/import"><span class="icon sm">upload_file</span> Bulk import (Google Sheets)</a>
         }
         <a *appCan="'property.create'" class="btn btn-primary btn-sm" routerLink="/admin/properties/new"><span class="icon sm">add_home</span> Add property</a>
       </div>

@@ -7,23 +7,26 @@ import { ImportRow, RowAction, validateRows } from '../../../core/admin/bulk-imp
 import { BRAND } from '../../../core/brand';
 import { ToastService } from '../../../core/services/toast.service';
 import { ADMIN_UI } from '../ui';
-import { MAX_ROWS, buildWorkbook, downloadBlob, readWorkbook } from './property-sheet';
+import { MAX_ROWS, createSpreadsheet, isGoogleConfigured, readSpreadsheet } from './property-sheet';
 
 type Filter = 'all' | 'ready' | 'issues';
 const ACTION_LABEL: Record<RowAction, string> = { create: 'New', update: 'Update', unchanged: 'No change', error: 'Error' };
-const MAX_FILE_MB = 10;
 
 /**
- * Bulk create / update from Excel: download the template (blank, or pre-filled with current properties) →
- * fill it → upload → preview every row with its errors → import the selected rows in one go.
+ * Bulk create / update from Google Sheets: create the template in Drive (blank, or pre-filled with current properties) →
+ * fill it → load it back → preview every row with its errors → import the selected rows in one go.
  */
 @Component({
   selector: 'app-bulk-import',
   imports: [FormsModule, RouterLink, ...ADMIN_UI],
   template: `
     <a class="back" routerLink="/admin/properties"><span class="icon xs">arrow_back</span> Properties</a>
-    <div class="pg-h"><div><h1>Bulk import from Excel</h1>
-      <p>Create new properties or update existing ones from a spreadsheet. Nothing is saved until you review the preview.</p></div></div>
+    <div class="pg-h"><div><h1>Bulk import from Google Sheets</h1>
+      <p>Create new properties or update existing ones from a Google Sheet. Nothing is saved until you review the preview.</p></div></div>
+    @if (!configured) {
+      <div class="flag amber"><span class="icon sm">warning</span>
+        Google Sheets is not connected yet. Add <b>googleOAuthClientId</b> in <code>src/environments/environment.ts</code> (and <code>environment.development.ts</code>) — see the comment there.</div>
+    }
 
     @if (result(); as res) {
       <div class="panel body done">
@@ -44,20 +47,23 @@ const MAX_FILE_MB = 10;
     } @else {
       <div class="cards">
         <section class="panel card">
-          <h3><span class="n">1</span> Download the template</h3>
-          <p class="muted small">Row 1 of the sheet tells you, for every column, whether it is required and what it is for. Dropdowns are built in.</p>
+          <h3><span class="n">1</span> Create a Google Sheet</h3>
+          <p class="muted small">Row 1 of the sheet tells you, for every column, whether it is required and what it is for. Dropdowns are built in. It is created in your own Google Drive.</p>
           <div class="legend">
             <span class="lg key">Key — blank = new</span><span class="lg new">Required for new *</span>
             <span class="lg cond">Conditional (*)</span><span class="lg opt">Optional</span>
           </div>
           <div class="btns">
-            <button class="btn btn-primary btn-sm" [disabled]="busy()" (click)="downloadTemplate()"><span class="icon sm">download</span> Blank template</button>
+            <button class="btn btn-primary btn-sm" [disabled]="busy()" (click)="createSheet(false)"><span class="icon sm">add_box</span> Blank sheet</button>
             @if (canEdit()) {
-              <button class="btn btn-outline btn-sm" [disabled]="busy() || !exportable().length" (click)="downloadCurrent()">
+              <button class="btn btn-outline btn-sm" [disabled]="busy() || !exportable().length" (click)="createSheet(true)">
                 <span class="icon sm">table_view</span> Current properties ({{ exportable().length }})</button>
             }
           </div>
-          @if (canEdit()) { <p class="muted small">Use "Current properties" for bulk updates: edit the cells you need and upload it back.</p> }
+          @if (sheetUrl()) {
+            <p class="small"><span class="icon xs">check_circle</span> Sheet created — <a [href]="sheetUrl()" target="_blank" rel="noopener"><b>open in Google Sheets</b></a></p>
+          }
+          @if (canEdit()) { <p class="muted small">Use "Current properties" for bulk updates: edit the cells you need and load it back.</p> }
         </section>
 
         <section class="panel card">
@@ -66,19 +72,19 @@ const MAX_FILE_MB = 10;
             <li><b>New property:</b> leave <i>Property ID</i> blank and fill every <span class="req">*</span> column.</li>
             @if (canEdit()) { <li><b>Update:</b> enter the Property ID and only the cells to change — blank cells stay as they are.</li> }
             <li>Rent changes on live listings go to <b>Approvals</b> first.</li>
-            <li>Up to {{ maxRows }} rows per file.</li>
+            <li>Up to {{ maxRows }} rows per sheet.</li>
           </ul>
         </section>
 
         <section class="panel card">
-          <h3><span class="n">3</span> Upload the file</h3>
-          <label class="drop" [class.over]="dragOver()" (dragover)="$event.preventDefault(); dragOver.set(true)" (dragleave)="dragOver.set(false)"
-                 (drop)="onDrop($event)">
-            <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" (change)="onPick($event)" hidden>
-            @if (busy()) { <span class="icon lg spin">progress_activity</span><b>Working…</b> }
-            @else { <span class="icon lg">upload_file</span><b>{{ fileName() || 'Drop the .xlsx here or click to choose' }}</b>
-              <small class="muted">Excel workbook (.xlsx), max {{ maxMb }} MB</small> }
-          </label>
+          <h3><span class="n">3</span> Load the sheet</h3>
+          <p class="muted small">Paste the sheet's link. You'll be asked to sign in to Google once; use the account that owns or can open the sheet.</p>
+          <form class="load" (ngSubmit)="load()">
+            <input class="inp" name="link" [(ngModel)]="sheetLink" placeholder="https://docs.google.com/spreadsheets/d/…" autocomplete="off">
+            <button class="btn btn-primary btn-sm" type="submit" [disabled]="busy() || !sheetLink.trim()">
+              @if (busy()) { <span class="icon sm spin">progress_activity</span> Working… } @else { <span class="icon sm">sync</span> Load sheet }
+            </button>
+          </form>
         </section>
       </div>
 
@@ -96,7 +102,7 @@ const MAX_FILE_MB = 10;
           </div>
           <p class="muted small stats">
             <b>{{ counts().create }}</b> new · <b>{{ counts().update }}</b> updates · <b>{{ counts().unchanged }}</b> no change ·
-            <b class="e">{{ counts().error }}</b> with errors (skipped — fix them in the file and upload again)
+            <b class="e">{{ counts().error }}</b> with errors (skipped — fix them in the sheet and load it again)
           </p>
           @for (w of headerNotes(); track w) { <div class="flag amber"><span class="icon sm">warning</span> {{ w }}</div> }
 
@@ -155,7 +161,7 @@ const MAX_FILE_MB = 10;
           </div>
         </div>
       } @else if (parsed() && !fatal()) {
-        <div class="flag amber"><span class="icon sm">info</span> No data rows found in this file — rows start below the header (row 3 in the template).</div>
+        <div class="flag amber"><span class="icon sm">info</span> No data rows found in this sheet — rows start below the header (row 3 in the template).</div>
       }
     }
   `,
@@ -173,9 +179,8 @@ const MAX_FILE_MB = 10;
       &.cond { background: #fff1d6; color: #8a5600; } &.opt { background: #f1f3f5; color: #4a5568; } }
     .btns { display: flex; gap: 8px; flex-wrap: wrap; }
     .tips { margin: 0; padding-left: 18px; font-size: 13px; li { margin: 4px 0; } .req { color: #9b1c1c; font-weight: 700; } }
-    .drop { flex: 1; min-height: 120px; border: 2px dashed var(--border); border-radius: 12px; display: flex; flex-direction: column; gap: 4px;
-      align-items: center; justify-content: center; text-align: center; padding: 14px; cursor: pointer; font-size: 13.5px;
-      .icon { color: var(--primary); } &:hover, &.over { border-color: var(--primary); background: #f7faff; } }
+    .load { display: flex; flex-direction: column; gap: 8px; align-items: stretch; .inp { width: 100%; } }
+    code { font-size: 12px; }
     .ph { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
     .sum { display: flex; gap: 6px; flex-wrap: wrap;
       button { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12.5px; cursor: pointer; font-weight: 600;
@@ -212,10 +217,11 @@ export class BulkImportComponent {
 
   readonly actionLabel = ACTION_LABEL;
   readonly maxRows = MAX_ROWS;
-  readonly maxMb = MAX_FILE_MB;
 
   readonly busy = signal(false);
-  readonly dragOver = signal(false);
+  readonly configured = isGoogleConfigured();
+  readonly sheetUrl = signal('');
+  sheetLink = '';
   readonly fileName = signal('');
   readonly fatal = signal('');
   readonly error = signal('');
@@ -260,40 +266,29 @@ export class BulkImportComponent {
     this.selected.set(this.allSelected() ? new Set() : new Set(ready));
   }
 
-  /* ---------- downloads ---------- */
+  /* ---------- create sheet ---------- */
 
-  async downloadTemplate() {
-    await this.run(async () => downloadBlob(await buildWorkbook(this.admin.importContext()), `${BRAND.company}-property-import-template.xlsx`));
-  }
-
-  async downloadCurrent() {
+  /** Creates the template in the admin's Drive, opens it, and pre-fills the link box so step 3 is one click. */
+  async createSheet(withCurrent: boolean) {
     const date = new Date().toISOString().slice(0, 10);
-    await this.run(async () => downloadBlob(await buildWorkbook(this.admin.importContext(), this.exportable()), `${BRAND.company}-properties-${date}.xlsx`));
-  }
-
-  /* ---------- upload ---------- */
-
-  onPick(e: Event) {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    input.value = '';   // choosing the same file again should re-read it
-    if (file) this.load(file);
-  }
-
-  onDrop(e: DragEvent) {
-    e.preventDefault();
-    this.dragOver.set(false);
-    const file = e.dataTransfer?.files?.[0];
-    if (file) this.load(file);
-  }
-
-  private async load(file: File) {
-    this.reset();
-    this.fileName.set(file.name);
-    if (!/\.xlsx$/i.test(file.name)) { this.fatal.set('Please upload an Excel .xlsx file (in Excel: File → Save As → Excel Workbook).'); return; }
-    if (file.size > MAX_FILE_MB * 1024 * 1024) { this.fatal.set(`The file is larger than ${MAX_FILE_MB} MB.`); return; }
+    const title = withCurrent ? `${BRAND.company} properties ${date}` : `${BRAND.company} property import template`;
     await this.run(async () => {
-      const read = await readWorkbook(file);
+      const sheet = await createSpreadsheet(this.admin.importContext(), title, withCurrent ? this.exportable() : []);
+      this.sheetUrl.set(sheet.url);
+      this.sheetLink = sheet.url;
+      window.open(sheet.url, '_blank', 'noopener');   // may be blocked after the async sign-in — the link above is the fallback
+      this.toast.show('Google Sheet created in your Drive.', 'success', 3500);
+    });
+  }
+
+  /* ---------- load sheet ---------- */
+
+  async load() {
+    this.reset();
+    this.fileName.set('');
+    await this.run(async () => {
+      const read = await readSpreadsheet(this.sheetLink);
+      this.fileName.set(read.title);
       const notes: string[] = [];
       if (read.missingHeaders.length) notes.push(`Columns not found: ${read.missingHeaders.join(', ')}. New rows will fail without them — use the latest template.`);
       if (read.unknownHeaders.length) notes.push(`Ignored unknown columns: ${read.unknownHeaders.join(', ')}.`);

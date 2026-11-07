@@ -63,7 +63,6 @@
               "src/styles.scss"
             ],
             "allowedCommonJsDependencies": [
-              "exceljs",
               "leaflet"
             ]
           },
