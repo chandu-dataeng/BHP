@@ -12,7 +12,7 @@ export const MIN_PHOTOS = 3;
 export function publishChecklist(r: PropertyRecord, openDuplicates: number, now = Date.now()): Check[] {
   const f = r.flat;
   const missing = [
-    !f.rent && 'rent', !f.maintenance && 'maintenance', !f.deposit && 'deposit', !f.areaSqft && 'area',
+    !f.bhk && 'BHK', !f.rent && 'rent', !f.maintenance && 'maintenance', !f.deposit && 'deposit', !f.areaSqft && 'area',
     !r.tower && 'tower', !r.flatNo && 'flat no.',
   ].filter(Boolean) as string[];
   const auth = r.authorization;

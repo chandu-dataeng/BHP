@@ -1,13 +1,13 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { AdminService } from '../../../core/admin/admin.service';
+import { AdminService, BulkImportResult, ImportMode } from '../../../core/admin/admin.service';
 import { AuthService } from '../../../core/admin/auth.service';
-import { ImportRow, RowAction, validateRows } from '../../../core/admin/bulk-import';
+import { ImportRow, RawRow, RowAction, sourceOption, validateRows } from '../../../core/admin/bulk-import';
 import { BRAND } from '../../../core/brand';
 import { ToastService } from '../../../core/services/toast.service';
 import { ADMIN_UI } from '../ui';
-import { MAX_ROWS, createSpreadsheet, isGoogleConfigured, readSpreadsheet } from './property-sheet';
+import { MAX_ROWS, ReadResult, createSpreadsheet, isGoogleConfigured, readSpreadsheet, writeBack } from './property-sheet';
 
 type Filter = 'all' | 'ready' | 'issues';
 const ACTION_LABEL: Record<RowAction, string> = { create: 'New', update: 'Update', unchanged: 'No change', error: 'Error' };
@@ -32,12 +32,21 @@ const ACTION_LABEL: Record<RowAction, string> = { create: 'New', update: 'Update
       <div class="panel body done">
         <span class="icon lg">task_alt</span>
         <h3>Import complete</h3>
-        <p>{{ res.created.length }} created{{ res.created.length ? (submitNew ? ' and submitted for verification' : ' as drafts') : '' }} · {{ res.updated.length }} updated</p>
+        <p>{{ res.created.length }} created{{ res.created.length ? createdNote(res) : '' }} · {{ res.updated.length }} updated</p>
         @if (res.created.length) {
           <div class="ids"><b>New:</b> @for (id of res.created; track id) { <a [routerLink]="['/admin/properties', id]">{{ id }}</a> }</div>
         }
         @if (res.updated.length) {
           <div class="ids"><b>Updated:</b> @for (id of res.updated; track id) { <a [routerLink]="['/admin/properties', id]">{{ id }}</a> }</div>
+        }
+        @switch (writeBackState()) {
+          @case ('busy') { <p class="muted small"><span class="icon xs spin">progress_activity</span> Marking the rows in your Google Sheet…</p> }
+          @case ('done') { <p class="small wb ok"><span class="icon xs">check_circle</span> Your Google Sheet now has a <b>BHP Property ID</b> and <b>BHP Status</b> for each imported row — loading the same sheet again won't create them twice.</p> }
+          @case ('failed') {
+            <div class="flag amber wb"><span class="icon sm">warning</span>
+              <span>Imported, but the Google Sheet could not be marked ({{ writeBackError() }}). Loading it again would offer these rows as new —
+              add a "BHP Property ID" column yourself: @for (b of res.byRow; track b.rowNo) { row {{ b.rowNo }} → {{ b.id }}{{ $last ? '' : ', ' }} }</span></div>
+          }
         }
         <div class="nav">
           <a class="btn btn-ghost" routerLink="/admin/properties">Go to properties</a>
@@ -81,6 +90,13 @@ const ACTION_LABEL: Record<RowAction, string> = { create: 'New', update: 'Update
           <p class="muted small">Paste the sheet's link. You'll be asked to sign in to Google once; use the account that owns or can open the sheet.</p>
           <form class="load" (ngSubmit)="load()">
             <input class="inp" name="link" [(ngModel)]="sheetLink" placeholder="https://docs.google.com/spreadsheets/d/…" autocomplete="off">
+            @if (!isAgent()) {
+              <label class="src">Source for rows that have none (e.g. Google Form entries)
+                <select class="inp" name="src" [(ngModel)]="defaultSourceId" (ngModelChange)="rows().length || parsed() ? validate() : null">
+                  <option value="">— default: Direct owner —</option>
+                  @for (s of sources(); track s.id) { <option [value]="s.id">{{ sourceLabel(s) }}</option> }
+                </select></label>
+            }
             <button class="btn btn-primary btn-sm" type="submit" [disabled]="busy() || !sheetLink.trim()">
               @if (busy()) { <span class="icon sm spin">progress_activity</span> Working… } @else { <span class="icon sm">sync</span> Load sheet }
             </button>
@@ -104,6 +120,11 @@ const ACTION_LABEL: Record<RowAction, string> = { create: 'New', update: 'Update
             <b>{{ counts().create }}</b> new · <b>{{ counts().update }}</b> updates · <b>{{ counts().unchanged }}</b> no change ·
             <b class="e">{{ counts().error }}</b> with errors (skipped — fix them in the sheet and load it again)
           </p>
+          @if (unticked()) {
+            <div class="flag amber"><span class="icon sm">content_copy</span>
+              <span><b>{{ unticked() }} row(s) are not ticked</b> because they look like a flat already in BHP (possible duplicate).
+              Check the linked property in the Issues column and tick the row if it is a different flat.</span></div>
+          }
           @for (w of headerNotes(); track w) { <div class="flag amber"><span class="icon sm">warning</span> {{ w }}</div> }
 
           <div class="tbl-wrap">
@@ -150,10 +171,15 @@ const ACTION_LABEL: Record<RowAction, string> = { create: 'New', update: 'Update
             @if (selectedCreates()) {
               <div class="mode">
                 <span class="muted small">New properties:</span>
-                <label><input type="radio" name="m" [value]="false" [(ngModel)]="submitNew"> Save as drafts</label>
-                <label><input type="radio" name="m" [value]="true" [(ngModel)]="submitNew"> Submit for verification</label>
+                @if (canPublish()) {
+                  <label><input type="radio" name="m" value="publish" [(ngModel)]="mode"> <b>Publish now</b> (skip verification &amp; approval)</label>
+                }
+                <label><input type="radio" name="m" value="draft" [(ngModel)]="mode"> Save as drafts</label>
+                <label><input type="radio" name="m" value="submit" [(ngModel)]="mode"> Submit for verification</label>
               </div>
             }
+            <label class="mark" title="Adds 'BHP Property ID' and 'BHP Status' columns at the right of the tab, so the same rows aren't offered as new next time">
+              <input type="checkbox" name="mark" [(ngModel)]="markSheet"> Mark imported rows in the Google Sheet</label>
             <span class="sp"></span>
             <button class="btn btn-ghost" (click)="restart()">Cancel</button>
             <button class="btn btn-primary" [disabled]="!selected().size" (click)="import()">
@@ -181,6 +207,7 @@ const ACTION_LABEL: Record<RowAction, string> = { create: 'New', update: 'Update
     .tips { margin: 0; padding-left: 18px; font-size: 13px; li { margin: 4px 0; } .req { color: #9b1c1c; font-weight: 700; } }
     .load { display: flex; flex-direction: column; gap: 8px; align-items: stretch; .inp { width: 100%; } }
     code { font-size: 12px; }
+    .src { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); .inp { width: 100%; } }
     .ph { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
     .sum { display: flex; gap: 6px; flex-wrap: wrap;
       button { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 4px 11px; font-size: 12.5px; cursor: pointer; font-weight: 600;
@@ -204,6 +231,8 @@ const ACTION_LABEL: Record<RowAction, string> = { create: 'New', update: 'Update
     .done { text-align: center; .icon { color: var(--green); font-size: 44px; } h3 { justify-content: center; margin: 6px 0; } p { margin: 0 0 10px; }
       .nav { justify-content: center; } }
     .ids { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; font-size: 13px; margin: 6px 0; }
+    .mark { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+    .wb { margin: 10px auto 0; max-width: 640px; text-align: left; } .wb.ok { color: var(--green-text); }
     .flag { margin-bottom: 10px; }
     .spin { animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -222,6 +251,15 @@ export class BulkImportComponent {
   readonly configured = isGoogleConfigured();
   readonly sheetUrl = signal('');
   sheetLink = '';
+  defaultSourceId = '';
+  private rawRows: RawRow[] = [];
+  private lastRead?: ReadResult;
+  readonly writeBackState = signal<'idle' | 'busy' | 'done' | 'failed'>('idle');
+  readonly writeBackError = signal('');
+  /** Writing to the user's sheet is opt-in: extra columns can upset an Apps Script that manages the same tab. */
+  markSheet = false;
+  readonly sources = computed(() => this.admin.importContext().sources);
+  readonly sourceLabel = sourceOption;
   readonly fileName = signal('');
   readonly fatal = signal('');
   readonly error = signal('');
@@ -230,8 +268,17 @@ export class BulkImportComponent {
   readonly rows = signal<ImportRow[]>([]);
   readonly selected = signal<Set<number>>(new Set());
   readonly filter = signal<Filter>('all');
-  readonly result = signal<{ created: string[]; updated: string[] } | null>(null);
-  submitNew = false;
+  readonly result = signal<BulkImportResult | null>(null);
+  /** Publishing straight to the site is the default for roles allowed to approve; everyone else saves drafts. */
+  mode: ImportMode = this.auth.can('property.approve') ? 'publish' : 'draft';
+  readonly canPublish = computed(() => this.auth.can('property.approve'));
+
+  createdNote(res: { created: string[]; published: string[] }) {
+    const live = res.published.length, rest = res.created.length - live;
+    if (live && !rest) return ` and published live (verification skipped)`;
+    if (live) return `, ${live} published live (verification skipped) and ${rest} kept as ${this.mode === 'submit' ? 'submitted for verification' : 'drafts'} — they miss price, size or BHK`;
+    return this.mode === 'submit' ? ' and submitted for verification' : ' as drafts';
+  }
 
   readonly isAgent = computed(() => this.auth.user()?.role === 'agent');
   readonly canEdit = computed(() => this.auth.can('property.edit'));
@@ -244,6 +291,8 @@ export class BulkImportComponent {
     return { create: n('create'), update: n('update'), unchanged: n('unchanged'), error: n('error'),
       issues: r.filter(x => x.errors.length || x.warnings.length).length };
   });
+  /** Ready rows left unticked because they may duplicate an existing flat — easy to miss, so they are called out. */
+  readonly unticked = computed(() => this.rows().filter(r => this.selectable(r) && r.duplicates.length && !this.selected().has(r.rowNo)).length);
   readonly shown = computed(() => {
     const f = this.filter();
     return this.rows().filter(r => f === 'all' || (f === 'ready' ? this.selectable(r) : r.errors.length || r.warnings.length));
@@ -289,28 +338,55 @@ export class BulkImportComponent {
     await this.run(async () => {
       const read = await readSpreadsheet(this.sheetLink);
       this.fileName.set(read.title);
+      this.lastRead = read;
       const notes: string[] = [];
-      if (read.missingHeaders.length) notes.push(`Columns not found: ${read.missingHeaders.join(', ')}. New rows will fail without them — use the latest template.`);
-      if (read.unknownHeaders.length) notes.push(`Ignored unknown columns: ${read.unknownHeaders.join(', ')}.`);
+      const a = read.approval;
+      if (a) {
+        const seen = Object.entries(a.values).map(([v, n]) => `${v} ×${n}`).join(', ');
+        notes.push(`Approval column "${a.column}": ${a.approved} approved row(s) loaded, ${a.skipped} skipped (values found: ${seen}).`);
+      } else {
+        notes.push('No approval column found (e.g. "Status" with Approved / Pending) — ALL rows are loaded.');
+      }
+      if (read.target.idCol >= 0) notes.push('Rows that already have a "BHP Property ID" are treated as existing properties (update / no change), not as new.');
+      notes.push(`Read tab "${read.tab}" — understood ${read.recognised.length} columns: ${read.recognised.join(' · ')}`);
+      if (read.missingHeaders.length) notes.push(`Columns not found: ${read.missingHeaders.join(', ')}. New rows will fail without them.`);
+      if (read.unknownHeaders.length) notes.push(`Not stored in BHP (ignored): ${read.unknownHeaders.join(', ')}.`);
       this.headerNotes.set(notes);
-      const rows = validateRows(read.rows, this.admin.importContext());
-      this.rows.set(rows);
-      // possible duplicates need an explicit tick — the same acknowledgement the wizard asks for
-      this.selected.set(new Set(rows.filter(r => this.selectable(r) && !r.duplicates.length).map(r => r.rowNo)));
+      this.rawRows = read.rows;
+      this.validate();
       this.parsed.set(true);
     }, e => this.fatal.set(e));
   }
 
-  import() {
+  /** Checks the loaded rows against the current settings — also re-run when the default source changes. */
+  validate() {
+    const rows = validateRows(this.rawRows, { ...this.admin.importContext(), defaultSourceId: this.defaultSourceId || undefined });
+    this.rows.set(rows);
+    // possible duplicates need an explicit tick — the same acknowledgement the wizard asks for
+    this.selected.set(new Set(rows.filter(r => this.selectable(r) && !r.duplicates.length).map(r => r.rowNo)));
+  }
+
+  async import() {
     this.error.set('');
     const chosen = this.rows().filter(r => this.selected().has(r.rowNo));
-    const res = this.admin.bulkImport(chosen, this.submitNew);
+    const res = this.admin.bulkImport(chosen, this.mode);
     if (!res.ok) { this.error.set(res.error); return; }
     this.result.set(res.value);
     this.toast.show(`${res.value.created.length} created · ${res.value.updated.length} updated`, 'success', 4000);
+    // stamp the rows in the Google Sheet so the next load knows they are already in BHP
+    const target = this.lastRead?.target;
+    if (!this.markSheet || !target || !res.value.byRow.length) return;
+    this.writeBackState.set('busy');
+    try {
+      await writeBack(target, res.value.byRow);
+      this.writeBackState.set('done');
+    } catch (e) {
+      this.writeBackState.set('failed');
+      this.writeBackError.set(e instanceof Error ? e.message : 'Unknown error');
+    }
   }
 
-  restart() { this.reset(); this.fileName.set(''); this.result.set(null); }
+  restart() { this.reset(); this.fileName.set(''); this.result.set(null); this.writeBackState.set('idle'); this.writeBackError.set(''); }
 
   private reset() {
     this.fatal.set(''); this.error.set(''); this.rows.set([]); this.selected.set(new Set());

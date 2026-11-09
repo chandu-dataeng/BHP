@@ -291,7 +291,25 @@ function instructionRows(ctx: ImportContext): Json[] {
 
 /* ======================= load ======================= */
 
-export interface ReadResult { title: string; rows: RawRow[]; unknownHeaders: string[]; missingHeaders: string[]; }
+export interface ReadResult {
+  title: string;
+  /** The tab that was read, and how each of its headers was understood ("Rent → Rent / month"). */
+  tab: string; recognised: string[];
+  rows: RawRow[]; unknownHeaders: string[]; missingHeaders: string[];
+  /** Approval column (e.g. "Status") — only rows marked approved are loaded. */
+  approval?: { column: string; approved: number; skipped: number; values: Record<string, number> };
+  /** Where things are, so the import can be written back to the same tab. */
+  target: { spreadsheetId: string; sheetId: number; tab: string; headerRow: number; headerCount: number; columnCount: number; idCol: number; statusCol: number };
+}
+
+/** Headers that hold the reviewer's decision. "Status" counts only when it actually holds review words. */
+const APPROVAL_HEADERS = new Set(['approved', 'approval', 'approve', 'approvalstatus', 'approvedstatus', 'isapproved', 'reviewstatus', 'review', 'decision']);
+const GENERIC_STATUS_HEADERS = new Set(['status', 'listingstatus', 'formstatus', 'state']);
+const REVIEW_WORDS = ['approved', 'approve', 'pending', 'rejected', 'reject', 'declined', 'hold', 'onhold', 'review', 'inreview', 'new',
+  'yes', 'no', 'needsinfo', 'needschanges', 'duplicate', 'spam', 'listed', 'published', 'imported', 'done', 'ok', 'true', 'false'];
+const word = (v: GridValue) => String(v ?? '').toLowerCase().replace(/[^a-z]/g, '');
+/** "Approved", "APPROVED ✅", "Yes", ticked checkbox (TRUE)… */
+const isApproved = (v: GridValue) => v === true || v === 1 || ['approved', 'approve', 'yes', 'y', 'true', 'ok', 'done'].includes(word(v));
 
 /** Accepts a full Google Sheets link or a bare spreadsheet ID. */
 export function parseSheetId(input: string): string | null {
@@ -301,49 +319,110 @@ export function parseSheetId(input: string): string | null {
 
 type GridValue = string | number | boolean | null | undefined;
 
+interface SheetMeta {
+  properties: { title: string; locale?: string };
+  sheets: { properties: { sheetId: number; title: string; hidden?: boolean; gridProperties?: { columnCount?: number } } }[];
+}
+
 export async function readSpreadsheet(linkOrId: string): Promise<ReadResult> {
   const id = parseSheetId(linkOrId);
   if (!id) throw new Error('That does not look like a Google Sheets link. Copy it from the browser address bar (docs.google.com/spreadsheets/d/…).');
 
-  const meta = await call<{ properties: { title: string }; sheets: { properties: { title: string; hidden?: boolean } }[] }>(
-    `/${id}?fields=properties.title,sheets.properties(title,hidden)`);
-  const tab = meta.sheets.find(s => s.properties.title === SHEET)
+  const meta = await call<SheetMeta>(`/${id}?fields=properties(title,locale),sheets.properties(sheetId,title,hidden,gridProperties.columnCount)`);
+  // the tab named in the link (…#gid=123) wins; then a tab called "Properties"; then the first visible tab
+  const gid = /[#&?]gid=(\d+)/.exec(linkOrId)?.[1];
+  const tab = (gid !== undefined ? meta.sheets.find(s => String(s.properties.sheetId) === gid) : undefined)
+    ?? meta.sheets.find(s => s.properties.title === SHEET)
     ?? meta.sheets.find(s => !s.properties.hidden && !['Lists', 'Instructions'].includes(s.properties.title));
   if (!tab) throw new Error(`No "${SHEET}" tab found in this Google Sheet.`);
 
-  const range = encodeURIComponent(`'${tab.properties.title.replace(/'/g, "''")}'`);
+  const range = encodeURIComponent(quoteTab(tab.properties.title));
   const data = await call<{ values?: GridValue[][] }>(`/${id}/values/${range}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`);
   const grid = data.values ?? [];
 
   const headerIdx = findHeaderRow(grid);
-  if (headerIdx < 0) throw new Error('Could not find the header row (Property ID, Society, Tower / Block…). Use the BHP template.');
+  if (headerIdx < 0) throw new Error(`Could not find the header row on tab "${tab.properties.title}" (Society, Flat No, Rent…). Check the link points at the right tab.`);
+  const header = grid[headerIdx].map(v => String(v ?? '').trim());
+  const body = grid.slice(headerIdx + 1);
 
   const colKey = new Map<number, ColKey>();
   const unknownHeaders: string[] = [];
-  grid[headerIdx].forEach((v, col) => {
-    const text = String(v ?? '').trim(); if (!text) return;
-    const key = HEADER_INDEX.get(normHeader(text));
-    if (key && key !== 'status') colKey.set(col, key);
+  let idCol = -1, statusCol = -1, newSocietyCol = -1;
+  header.forEach((text, col) => {
+    if (!text) return;
+    const norm = normHeader(text);
+    const key = HEADER_INDEX.get(norm);
+    if (key === 'propertyId' && idCol < 0) idCol = col;
+    if (key === 'status') { if (statusCol < 0) statusCol = col; return; }   // "BHP Status" — written by us, never read back
+    if (key && !colKey.has(col)) colKey.set(col, key);
+    else if (norm === 'newsociety' || norm === 'othersociety' || norm === 'societynotinlist') newSocietyCol = col;
     else if (!key) unknownHeaders.push(text);
   });
-  const present = new Set(colKey.values());
-  const missingHeaders = COLUMNS.filter(c => c.need === 'new' && !present.has(c.key)).map(c => c.header);
+
+  // approval column: a clearly named one, else a generic "Status" that really holds review decisions
+  const reviewShare = (col: number) => {
+    const vals = body.map(r => r?.[col]).filter(v => v !== null && v !== undefined && String(v).trim() !== '');
+    return { vals, approved: vals.filter(isApproved).length, share: vals.length ? vals.filter(v => v === true || v === false || REVIEW_WORDS.includes(word(v))).length / vals.length : 0 };
+  };
+  let approvalCol = header.findIndex(h => APPROVAL_HEADERS.has(normHeader(h)) && !colKey.has(header.indexOf(h)));
+  if (approvalCol < 0) {
+    approvalCol = header.findIndex((h, col) => GENERIC_STATUS_HEADERS.has(normHeader(h)) && !colKey.has(col) && reviewShare(col).approved > 0 && reviewShare(col).share >= 0.6);
+  }
+  const approvalColumn = approvalCol >= 0 ? header[approvalCol] : undefined;
+
+  const dateCols = new Set([...colKey].filter(([, k]) => COLUMNS.find(c => c.key === k)?.kind === 'date').map(([c]) => c));
+  const monthFirst = /^(en_US|en_PH|es_US|en_CA)/.test(meta.properties.locale ?? 'en_US');
 
   const rows: RawRow[] = [];
+  const values: Record<string, number> = {};
+  let approved = 0, skipped = 0;
   const last = Math.min(grid.length - 1, headerIdx + MAX_ROWS * 3);
   for (let n = headerIdx + 1; n <= last; n++) {
+    const line = grid[n] ?? [];
     const cells: RawRow['cells'] = {};
     let filled = false;
     colKey.forEach((key, col) => {
-      const v = grid[n]?.[col];
-      if (v !== null && v !== undefined && !(typeof v === 'string' && !v.trim())) { cells[key] = v; filled = true; }
+      let v = line[col];
+      if (v === null || v === undefined || (typeof v === 'string' && !v.trim())) return;
+      if (dateCols.has(col) && typeof v === 'string') v = textDate(v, monthFirst);
+      cells[key] = v; filled = true;
     });
     if (!filled) continue;
+    // "Society not in the list" → the form's free-text society, so the error names it
+    if (!cells.society && newSocietyCol >= 0 && String(line[newSocietyCol] ?? '').trim()) cells.society = String(line[newSocietyCol]).trim();
+    if (approvalCol >= 0) {
+      const raw = String(line[approvalCol] ?? '').trim() || '(blank)';
+      values[raw] = (values[raw] ?? 0) + 1;
+      if (!isApproved(line[approvalCol])) { skipped++; continue; }
+      approved++;
+    }
     rows.push({ rowNo: n + 1, cells });
     if (rows.length > MAX_ROWS) throw new Error(`Too many rows — the limit is ${MAX_ROWS} per sheet. Split it into smaller sheets.`);
   }
-  return { title: meta.properties.title, rows, unknownHeaders, missingHeaders };
+
+  const recognised = [...colKey.keys()].sort((a, b) => a - b).map(c => `${header[c]} → ${COLUMNS.find(x => x.key === colKey.get(c))!.header}`);
+  const present = new Set(colKey.values());
+  return {
+    title: meta.properties.title, tab: tab.properties.title, recognised, rows,
+    unknownHeaders: unknownHeaders.filter(h => h !== approvalColumn),
+    missingHeaders: COLUMNS.filter(c => c.need === 'new' && !present.has(c.key)).map(c => c.header),
+    approval: approvalColumn ? { column: approvalColumn, approved, skipped, values } : undefined,
+    target: {
+      spreadsheetId: id, sheetId: tab.properties.sheetId, tab: tab.properties.title, headerRow: headerIdx + 1,
+      headerCount: header.length, columnCount: tab.properties.gridProperties?.columnCount ?? header.length, idCol, statusCol,
+    },
+  };
 }
+
+/** A date typed as text: 12/1/2026 is 1 Dec in a US-locale sheet, 12 Jan elsewhere. → YYYY-MM-DD (other text is left alone). */
+function textDate(v: string, monthFirst: boolean): string {
+  const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(v.trim());
+  if (!m) return v;
+  const [mo, d] = monthFirst ? [+m[1], +m[2]] : [+m[2], +m[1]];
+  return `${m[3]}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+const quoteTab = (t: string) => `'${t.replace(/'/g, "''")}'`;
 
 /** The header is the first row (of the first 6) where at least 3 cells are known column names. */
 function findHeaderRow(grid: GridValue[][]): number {
@@ -351,4 +430,39 @@ function findHeaderRow(grid: GridValue[][]): number {
     if ((grid[n] ?? []).filter(v => HEADER_INDEX.has(normHeader(String(v ?? '')))).length >= 3) return n;
   }
   return -1;
+}
+
+/* ======================= write back ======================= */
+
+const STATUS_TEXT: Record<string, string> = {
+  published: 'Listed', draft: 'Draft in BHP', pending_verification: 'Sent for verification', pending_approval: 'Awaiting approval', updated: 'Updated',
+};
+
+/**
+ * After an import, stamps each imported row with its BHP Property ID (and what happened) in two columns at the right
+ * of the same tab. On the next load those rows are recognised as existing properties — updates, not new flats.
+ */
+export async function writeBack(t: ReadResult['target'], rows: { rowNo: number; id: string; status: string }[]): Promise<void> {
+  if (!rows.length) return;
+  let next = t.headerCount;
+  const idCol = t.idCol >= 0 ? t.idCol : next++;
+  const statusCol = t.statusCol >= 0 ? t.statusCol : next++;
+  const needCols = Math.max(idCol, statusCol) + 1;
+  if (needCols > t.columnCount) {
+    await call(`/${t.spreadsheetId}:batchUpdate`, { method: 'POST',
+      body: { requests: [{ appendDimension: { sheetId: t.sheetId, dimension: 'COLUMNS', length: needCols - t.columnCount } }] } });
+    t.columnCount = needCols;
+  }
+  const cell = (col: number, row: number) => `${quoteTab(t.tab)}!${colLetter(col)}${row}`;
+  const when = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const data = [
+    ...(t.idCol < 0 ? [{ range: cell(idCol, t.headerRow), values: [['BHP Property ID']] }] : []),
+    ...(t.statusCol < 0 ? [{ range: cell(statusCol, t.headerRow), values: [['BHP Status']] }] : []),
+    ...rows.flatMap(r => [
+      { range: cell(idCol, r.rowNo), values: [[r.id]] },
+      { range: cell(statusCol, r.rowNo), values: [[`${STATUS_TEXT[r.status] ?? r.status} · ${when}`]] },
+    ]),
+  ];
+  await call(`/${t.spreadsheetId}/values:batchUpdate`, { method: 'POST', body: { valueInputOption: 'RAW', data } });
+  t.idCol = idCol; t.statusCol = statusCol;
 }

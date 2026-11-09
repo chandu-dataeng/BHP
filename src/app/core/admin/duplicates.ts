@@ -20,8 +20,8 @@ export function compare(a: PropertyRecord, b: PropertyRecord, owners: Map<string
   if (a.tower && b.tower && norm(a.tower) === norm(b.tower)) signals.push({ label: `Same tower (${a.tower})`, weight: 15 });
   if (a.flatNo && b.flatNo && norm(a.flatNo) === norm(b.flatNo)) signals.push({ label: `Same flat no. (${a.flatNo})`, weight: 35 });
   if (a.flat.floor === b.flat.floor) signals.push({ label: `Same floor (${a.flat.floor})`, weight: 8 });
-  if (a.flat.bhk === b.flat.bhk) signals.push({ label: `Same BHK (${a.flat.bhk})`, weight: 7 });
-  if (Math.abs(a.flat.areaSqft - b.flat.areaSqft) <= a.flat.areaSqft * 0.03) signals.push({ label: `Area within 3% (${a.flat.areaSqft} / ${b.flat.areaSqft} sq.ft)`, weight: 8 });
+  if (a.flat.bhk && a.flat.bhk === b.flat.bhk) signals.push({ label: `Same BHK (${a.flat.bhk})`, weight: 7 });
+  if (a.flat.areaSqft && b.flat.areaSqft && Math.abs(a.flat.areaSqft - b.flat.areaSqft) <= a.flat.areaSqft * 0.03) signals.push({ label: `Area within 3% (${a.flat.areaSqft} / ${b.flat.areaSqft} sq.ft)`, weight: 8 });
   const oa = a.ownerId ? owners.get(a.ownerId) : undefined;
   const ob = b.ownerId ? owners.get(b.ownerId) : undefined;
   if (oa && ob && oa.phone === ob.phone) signals.push({ label: 'Same owner phone', weight: 30 });

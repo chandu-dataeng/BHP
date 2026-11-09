@@ -1,5 +1,6 @@
 import { Injectable, computed, signal } from '@angular/core';
 import { SOCIETIES } from '../data/rent.data';
+import { directImageUrl } from '../data/drive';
 import { RentalFlat, Society } from '../models/rent.models';
 import { AvailabilityAlert, Enquiry, EnquiryResult, ListingReport } from '../models/common.models';
 import {
@@ -58,7 +59,14 @@ export class MockDbService {
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const s = JSON.parse(raw) as DbState;
-        if (s.version === VERSION) return s;
+        if (s.version === VERSION) {
+          // listings imported before Drive links were converted would show a broken photo — fix them on load
+          s.properties.forEach(p => {
+            p.flat.images = p.flat.images.map(directImageUrl);
+            if (p.flat.floorPlan) p.flat.floorPlan = directImageUrl(p.flat.floorPlan);
+          });
+          return s;
+        }
       }
     } catch { /* storage unavailable or corrupt */ }
     return this.seed();

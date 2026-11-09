@@ -7,7 +7,7 @@ import { AuthService } from './auth.service';
 import { Permission } from './permissions';
 import {
   CommercialTerms, DuplicateDecision, Lead, Owner, OwnerAuthorization, PropertyRecord, Source, StaffUser,
-  Verification, VerificationResult,
+  ListingStatus, Verification, VerificationResult,
 } from './admin.models';
 import { allDuplicatePairs, findDuplicatesFor, DuplicateMatch, pairKey } from './duplicates';
 import { canPublish, publishChecklist } from './publish-rules';
@@ -16,6 +16,15 @@ import type { ImportContext, ImportRow, PropertyPatch } from './bulk-import';
 export type Result<T = void> = { ok: true; value: T } | { ok: false; error: string };
 const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 const fail = (error: string): Result<never> => ({ ok: false, error });
+
+/** What happens to NEW properties from a bulk import: saved as drafts, sent to verification, or put live straight away. */
+export type ImportMode = 'draft' | 'submit' | 'publish';
+
+export interface BulkImportResult {
+  created: string[]; updated: string[]; published: string[];
+  /** Which sheet row became / updated which property — written back to the Google Sheet. */
+  byRow: { rowNo: number; id: string; status: ListingStatus | 'updated' }[];
+}
 
 export interface NewPropertyInput {
   societyId: string;
@@ -37,6 +46,11 @@ export interface NewPropertyInput {
   description?: string;
   photos: number;                    // mock: number of photos "uploaded"
   images?: string[];                 // real photo URLs (bulk import) — replaces the mock photos when given
+  bathrooms?: number;
+  balconies?: number;
+  propertyAge?: string;
+  floorPlan?: string;
+  videoUrl?: string;
   sourceId: string;
   ownerId: string | null;
   newOwner?: { name: string; phone: string };
@@ -200,6 +214,11 @@ export class AdminService {
       parking: input.parking, availableFrom: input.availableFrom, petsAllowed: input.petsAllowed, postedOn: iso().slice(0, 10),
       verified: false, availability: 'unknown', lastVerifiedAt: null,
       ...(input.description ? { description: input.description } : {}),
+      ...(input.bathrooms !== undefined ? { bathrooms: input.bathrooms } : {}),
+      ...(input.balconies !== undefined ? { balconies: input.balconies } : {}),
+      ...(input.propertyAge ? { propertyAge: input.propertyAge } : {}),
+      ...(input.floorPlan ? { floorPlan: input.floorPlan } : {}),
+      ...(input.videoUrl ? { videoUrl: input.videoUrl } : {}),
     });
     flat.code = id;
     flat.images = input.images ?? flat.images.slice(0, Math.max(0, input.photos));
@@ -243,11 +262,12 @@ export class AdminService {
    * Applies validated sheet rows in ONE commit (all or nothing). Permissions and record state are re-checked here
    * because the preview may be stale — the API must do the same.
    */
-  bulkImport(rows: ImportRow[], submit: boolean): Result<{ created: string[]; updated: string[] }> {
+  bulkImport(rows: ImportRow[], mode: ImportMode): Result<BulkImportResult> {
     const u = this.auth.user(); if (!u) return fail('Please sign in again.');
     const creates = rows.filter(r => r.action === 'create' && r.create);
     const updates = rows.filter(r => r.action === 'update' && r.patch && r.propertyId);
     if (creates.length && !this.auth.can('property.create')) return fail('Your role is not allowed to create properties.');
+    if (mode === 'publish' && creates.length && !this.auth.can('property.approve')) return fail('Your role is not allowed to publish properties directly.');
     if (updates.length && !this.auth.can('property.edit')) return fail('Your role is not allowed to update properties.');
     for (const r of updates) {
       const cur = this.raw().properties.find(p => p.id === r.propertyId);
@@ -255,20 +275,32 @@ export class AdminService {
       if (cur.status === 'rented') return fail(`Row ${r.rowNo}: ${cur.id} is closed (rented).`);
       if (r.patch!.rent !== undefined && cur.pendingRentChange) return fail(`Row ${r.rowNo}: ${cur.id} already has a rent change pending.`);
     }
-    const created: string[] = [], updated: string[] = [];
+    const created: string[] = [], updated: string[] = [], published: string[] = [], byRow: BulkImportResult['byRow'] = [];
     this.mock.commit(d => {
-      creates.forEach(r => created.push(this.insert(d, r.create!, submit).id));
+      creates.forEach(r => {
+        const rec = this.insert(d, r.create!, mode === 'submit');
+        created.push(rec.id);
+        // Direct publish skips verification & approval. A tenant must at least see a price, size and BHK — anything
+        // thinner stays a draft. Availability is NOT marked confirmed, so the public label stays "not yet confirmed".
+        if (mode === 'publish' && rec.flat.rent > 0 && rec.flat.areaSqft > 0 && rec.flat.bhk > 0) {
+          rec.status = 'published'; rec.availability = 'available'; rec.nextCheckDue = iso();
+          rec.flat.postedOn = iso().slice(0, 10);
+          this.mock.audit(d, u.id, 'property', rec.id, 'listing.published', 'Published directly from spreadsheet import — verification and approval skipped');
+          published.push(rec.id);
+        }
+        byRow.push({ rowNo: r.rowNo, id: rec.id, status: rec.status });
+      });
       updates.forEach(r => {
         const rec = d.properties.find(p => p.id === r.propertyId)!;
         this.applyPatch(d, rec, r.patch!, u.id);
         rec.updatedAt = iso();
-        updated.push(rec.id);
+        updated.push(rec.id); byRow.push({ rowNo: r.rowNo, id: rec.id, status: 'updated' });
       });
       if (created.length + updated.length) {
         this.mock.audit(d, u.id, 'system', 'bulk-import', 'bulk.imported', `${created.length} created, ${updated.length} updated from spreadsheet`);
       }
     });
-    return ok({ created, updated });
+    return ok({ created, updated, published, byRow });
   }
 
   private applyPatch(d: DbState, r: PropertyRecord, p: PropertyPatch, actor: string) {
@@ -283,6 +315,8 @@ export class AdminService {
     assign('maintenance', p.maintenance); assign('availableFrom', p.availableFrom); assign('furnishing', p.furnishing);
     assign('facing', p.facing); assign('tenantType', p.tenantType); assign('parking', p.parking);
     assign('petsAllowed', p.petsAllowed); assign('description', p.description);
+    assign('bathrooms', p.bathrooms); assign('balconies', p.balconies); assign('propertyAge', p.propertyAge);
+    assign('floorPlan', p.floorPlan); assign('videoUrl', p.videoUrl);
     if (p.bhk !== undefined) f.title = `${p.bhk} BHK Apartment`;
     if (p.images) { f.images = p.images; changed.push('photos'); }
     if (p.depositMonths !== undefined) { f.depositMonths = p.depositMonths; f.deposit = f.rent * p.depositMonths; changed.push('deposit'); }
@@ -388,11 +422,31 @@ export class AdminService {
     const g = this.guard('property.approve'); if (g) return fail(g);
     const current = this.raw().properties.find(p => p.id === id);
     if (current && current.sourcedBy === this.me()) return fail('Separation of duties: you cannot approve a property you sourced. Ask another manager.');
-    if (current && !canPublish(publishChecklist(current, this.openDuplicatesCount(id)))) return fail('Not all publication checks pass.');
+    if (current) {
+      const failing = publishChecklist(current, this.openDuplicatesCount(id)).filter(c => !c.ok);
+      if (failing.length) return fail(`Not all publication checks pass: ${failing.map(c => c.detail ? `${c.label} (${c.detail})` : c.label).join('; ')}.`);
+    }
     return this.mutateProperty(id, (r, d) => {
       if (r.status !== 'pending_approval' && r.status !== 'suspended') return 'Only properties pending approval can be published.';
       r.status = 'published'; r.flat.verified = true; r.flat.postedOn = iso().slice(0, 10);
       this.mock.audit(d, this.me(), 'property', r.id, 'listing.published', 'Live on FindFlat');
+      return undefined;
+    });
+  }
+
+  /**
+   * Puts a SUSPENDED listing back live. Needs only what a tenant must see (rent, area, BHK) and no open conflict —
+   * the same bar as "Publish now" on the sheet import, while the full verification workflow is switched off.
+   */
+  republish(id: string): Result<PropertyRecord> {
+    const g = this.guard('property.approve'); if (g) return fail(g);
+    return this.mutateProperty(id, (r, d) => {
+      if (r.status !== 'suspended') return 'Only suspended listings can be re-published.';
+      const missing = [!r.flat.rent && 'rent', !r.flat.areaSqft && 'area', !r.flat.bhk && 'BHK'].filter(Boolean);
+      if (missing.length) return `Fill in ${missing.join(', ')} before re-publishing.`;
+      if (r.conflict) return `Resolve the conflicting information first: ${r.conflict}`;
+      r.status = 'published';
+      this.mock.audit(d, this.me(), 'property', r.id, 'listing.published', 'Re-published after suspension (verification checks not required)');
       return undefined;
     });
   }

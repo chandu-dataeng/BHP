@@ -244,7 +244,7 @@ export class PropertyDetailComponent {
   }
   submit() { this.done(this.admin.submitForVerification(this.id()), 'Submitted — a verifier has been assigned'); }
   suspend(reason: string) { const r = this.admin.suspend(this.id(), reason); this.done(r, 'Listing suspended — hidden from FindFlat'); if (r.ok) this.suspending.set(false); }
-  reinstate() { this.done(this.admin.approve(this.id()), 'Listing re-published'); }
+  reinstate() { this.done(this.admin.republish(this.id()), 'Listing re-published'); }
   resolve(note: string) {
     if (!note.trim()) { this.toast.show('Describe how it was resolved.', 'error'); return; }
     this.done(this.admin.resolveConflict(this.id(), note), 'Conflict resolved — please record a fresh availability check');
