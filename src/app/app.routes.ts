@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { environment } from '../environments/environment';
 
 /** All feature screens are lazy-loaded so the first page opens fast. */
 export const routes: Routes = [
@@ -26,8 +27,11 @@ export const routes: Routes = [
   { path: 'saved', title: 'Saved Properties',
     loadComponent: () => import('./features/saved/saved.component').then(m => m.SavedComponent) },
 
-  // BHP ADMIN (internal operating system) — its own shell, lazy-loaded, never in the public bundle
-  { path: 'admin', loadChildren: () => import('./features/admin/admin.routes').then(m => m.ADMIN_ROUTES) },
+  // BHP ADMIN (internal operating system) — its own shell, lazy-loaded. Its login is demo-only (pick a role, no
+  // password), so the public production build leaves it out entirely until the .NET API provides real sign-in.
+  ...(environment.adminEnabled
+    ? [{ path: 'admin', loadChildren: () => import('./features/admin/admin.routes').then(m => m.ADMIN_ROUTES) }]
+    : []),
 
   { path: '**', redirectTo: '' },
 ];

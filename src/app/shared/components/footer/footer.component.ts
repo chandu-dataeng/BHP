@@ -1,4 +1,5 @@
 import { Component } from '@angular/core';
+import { environment } from '../../../../environments/environment';
 import { RouterLink } from '@angular/router';
 import { BRAND } from '../../../core/brand';
 
@@ -18,7 +19,7 @@ import { BRAND } from '../../../core/brand';
           <a routerLink="/rent">Flats for Rent</a>
           <a routerLink="/rent/match">Find my match</a>
           <a routerLink="/saved">Saved Properties</a>
-          <a routerLink="/admin">{{ brand.company }} staff login</a>
+          @if (adminEnabled) { <a routerLink="/admin">{{ brand.company }} staff login</a> }
         </div>
         <div>
           <h4>Popular areas</h4>
@@ -52,5 +53,6 @@ import { BRAND } from '../../../core/brand';
 })
 export class FooterComponent {
   readonly brand = BRAND;
+  readonly adminEnabled = environment.adminEnabled;
   readonly year = new Date().getFullYear();
 }
